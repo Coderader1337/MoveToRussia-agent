@@ -1,0 +1,5 @@
+.env
+credentials.json
+token.json
+exported_emails_json/
+venv/
