@@ -1,8 +1,9 @@
 """
 По email клиента:
   1) Читает данные из EnvyCRM (lead/search + deal/search — те же read-only search, что в fetch_envycrm_by_email.py).
-  2) Загружает из ящика менеджера (Yandex IMAP) переписку с этим адресом (FROM / TO / CC) без побочных эффектов:
-     INBOX открывается через EXAMINE (readonly), тела писем — FETCH BODY.PEEK[] (не выставляет \\Seen; Yandex не принимает RFC822.PEEK).
+  2) Загружает из ящика менеджера (Yandex IMAP) переписку (FROM / TO / CC) без побочных эффектов:
+     сначала INBOX, затем папка исходящих (по умолчанию Sent; иначе IMAP_SENT_MAILBOX в .env, напр. Отправленные).
+     EXAMINE (readonly), FETCH BODY.PEEK[] (не выставляет \\Seen; Yandex не принимает RFC822.PEEK).
   3) Пишет в Google Sheets: лист CRM — только полезные для агента поля; лист Emails — как раньше.
 
 Переменные .env (как в ваших скриптах):
@@ -10,6 +11,7 @@
   GOOGLE_SHEET_ID, credentials.json, token.json
   ENVYCRM_BASE_URL, ENVYCRM_KEY
   CLIENT_EMAIL — опционально (по умолчанию aluoranen@mail.ru)
+  IMAP_SENT_MAILBOX — опционально, имя папки «Отправленные» в IMAP (если не Sent)
 """
 
 from __future__ import annotations
@@ -44,6 +46,23 @@ SHEET_CRM = "CRM_Context"
 SHEET_EMAILS = "Emails"
 
 DEFAULT_CLIENT_EMAIL = "aluoranen@mail.ru"
+
+# Google Sheets: не более 50 000 символов в одной ячейке (иначе API 400).
+# Берём запас — длинные цепочки эмодзи/суррогатов могут по-разному учитываться на стороне API.
+GSHEET_MAX_CELL_CHARS = 49_000
+_GSHEET_TRUNC_MARKER = " …[обрезано: лимит ячейки Google Sheets]"
+
+
+def _truncate_for_sheet_cell(value: Any, limit: int = GSHEET_MAX_CELL_CHARS) -> str:
+    if value is None:
+        return ""
+    s = str(value)
+    if len(s) <= limit:
+        return s
+    keep = limit - len(_GSHEET_TRUNC_MARKER)
+    if keep < 1:
+        return _GSHEET_TRUNC_MARKER[:limit]
+    return s[:keep] + _GSHEET_TRUNC_MARKER
 
 
 def _strip_wrapping_quotes(value: str) -> str:
@@ -228,10 +247,12 @@ def _raw_message_from_fetch(msg_data: list[Any] | None) -> bytes | None:
     return max(candidates, key=len)
 
 
-def search_email_ids(mail: imaplib.IMAP4_SSL, contact_email: str) -> list[bytes]:
-    """Письма, где клиент в FROM, TO или CC (три поиска — надёжнее на Yandex IMAP)."""
+def search_email_ids(
+    mail: imaplib.IMAP4_SSL, contact_email: str, mailbox: str = "INBOX"
+) -> list[bytes]:
+    """Письма в указанной папке, где клиент в FROM, TO или CC."""
     # readonly=True → EXAMINE: только чтение, без записи состояния ящика в этой сессии.
-    mail.select("INBOX", readonly=True)
+    mail.select(mailbox, readonly=True)
     q = _imap_quote_addr(contact_email.strip())
     found: set[bytes] = set()
     for crit in (f'FROM "{q}"', f'TO "{q}"', f'CC "{q}"'):
@@ -242,7 +263,9 @@ def search_email_ids(mail: imaplib.IMAP4_SSL, contact_email: str) -> list[bytes]
 
 
 def fetch_emails_by_ids(
-    mail: imaplib.IMAP4_SSL, email_ids: list[bytes]
+    mail: imaplib.IMAP4_SSL,
+    email_ids: list[bytes],
+    folder_label: str = "",
 ) -> list[dict[str, Any]]:
     seen: set[bytes] = set()
     out: list[dict[str, Any]] = []
@@ -271,6 +294,7 @@ def fetch_emails_by_ids(
                 ts = 0.0
         out.append(
             {
+                "folder": folder_label,
                 "subject": subject,
                 "from": from_header,
                 "to": to_header,
@@ -279,9 +303,6 @@ def fetch_emails_by_ids(
                 "_ts": ts,
             }
         )
-    out.sort(key=lambda x: float(x.get("_ts", 0.0)))
-    for item in out:
-        item.pop("_ts", None)
     return out
 
 
@@ -343,7 +364,8 @@ def upload_crm_block(spreadsheet: gspread.Spreadsheet, crm_rows: list[list[Any]]
     ws = _ensure_worksheet(spreadsheet, SHEET_CRM, max(len(crm_rows) + 10, 50), 14)
     ws.clear()
     if crm_rows:
-        ws.update(crm_rows, range_name="A1", raw=False)
+        safe = [[_truncate_for_sheet_cell(c) for c in row] for row in crm_rows]
+        ws.update(safe, range_name="A1", raw=False)
     try:
         ws.format(
             "A1:M1",
@@ -358,26 +380,43 @@ def upload_crm_block(spreadsheet: gspread.Spreadsheet, crm_rows: list[list[Any]]
 
 def upload_emails_block(spreadsheet: gspread.Spreadsheet, emails: list[dict[str, Any]]) -> None:
     ws = _ensure_worksheet(
-        spreadsheet, SHEET_EMAILS, max(len(emails) + 100, 200), 5
+        spreadsheet, SHEET_EMAILS, max(len(emails) + 100, 200), 6
     )
     ws.clear()
-    headers = ["Subject", "From", "To", "Date", "Text"]
+    headers = ["Folder", "Subject", "From", "To", "Date", "Text"]
     all_rows = [headers]
     for e in emails:
         all_rows.append(
             [
-                e.get("subject", ""),
-                e.get("from", ""),
-                e.get("to", ""),
-                e.get("date", ""),
-                e.get("textPlain", ""),
+                _truncate_for_sheet_cell(e.get("folder", "")),
+                _truncate_for_sheet_cell(e.get("subject", "")),
+                _truncate_for_sheet_cell(e.get("from", "")),
+                _truncate_for_sheet_cell(e.get("to", "")),
+                _truncate_for_sheet_cell(e.get("date", "")),
+                _truncate_for_sheet_cell(e.get("textPlain", "")),
             ]
         )
     if len(all_rows) > 1:
-        ws.update(all_rows, range_name="A1", raw=False)
+        try:
+            ws.update(all_rows, range_name="A1", raw=False)
+        except gspread.exceptions.APIError as err:
+            # На случай смены лимита или других полей — повтор с более жёсткой обрезкой.
+            if "50000" in str(err) or "INVALID_ARGUMENT" in str(err):
+                hard = 45_000
+                shrunk = [all_rows[0]] + [
+                    [_truncate_for_sheet_cell(c, hard) for c in row]
+                    for row in all_rows[1:]
+                ]
+                ws.update(shrunk, range_name="A1", raw=False)
+                print(
+                    "Предупреждение: повторная загрузка с обрезкой 45k симв. на ячейку после ошибки API.",
+                    file=sys.stderr,
+                )
+            else:
+                raise
     try:
         ws.format(
-            "A1:E1",
+            "A1:F1",
             {
                 "textFormat": {"bold": True},
                 "backgroundColor": {"red": 0.9, "green": 0.9, "blue": 0.95},
@@ -414,9 +453,25 @@ def main() -> int:
 
     mail = connect_imap()
     try:
-        ids = search_email_ids(mail, client_email)
-        print(f"IMAP: найдено писем (по FROM/TO/CC): {len(ids)}")
-        emails = fetch_emails_by_ids(mail, ids) if ids else []
+        emails: list[dict[str, Any]] = []
+        ids_in = search_email_ids(mail, client_email, "INBOX")
+        print(f"IMAP INBOX: совпадений поиска: {len(ids_in)}")
+        emails.extend(fetch_emails_by_ids(mail, ids_in, "INBOX"))
+
+        sent_mailbox = _env("IMAP_SENT_MAILBOX") or "Sent"
+        try:
+            ids_out = search_email_ids(mail, client_email, sent_mailbox)
+            print(f"IMAP {sent_mailbox}: совпадений поиска: {len(ids_out)}")
+            emails.extend(fetch_emails_by_ids(mail, ids_out, sent_mailbox))
+        except (UnicodeEncodeError, imaplib.IMAP4.error) as e:
+            print(
+                f"IMAP: не удалось открыть папку исходящих «{sent_mailbox}»: {e}",
+                file=sys.stderr,
+            )
+
+        emails.sort(key=lambda x: float(x.get("_ts", 0.0)))
+        for item in emails:
+            item.pop("_ts", None)
     finally:
         try:
             mail.close()
