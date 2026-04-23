@@ -2,7 +2,7 @@
 По email клиента:
   1) Читает данные из EnvyCRM (lead/search + deal/search — те же read-only search, что в fetch_envycrm_by_email.py).
   2) Загружает из ящика менеджера (Yandex IMAP) переписку с этим адресом (FROM / TO / CC) без побочных эффектов:
-     INBOX открывается через EXAMINE (readonly), тела писем — FETCH RFC822.PEEK (не выставляет \\Seen).
+     INBOX открывается через EXAMINE (readonly), тела писем — FETCH BODY.PEEK[] (не выставляет \\Seen; Yandex не принимает RFC822.PEEK).
   3) Пишет в Google Sheets: лист CRM — только полезные для агента поля; лист Emails — как раньше.
 
 Переменные .env (как в ваших скриптах):
@@ -210,6 +210,24 @@ def _imap_quote_addr(addr: str) -> str:
     return addr.replace("\\", "\\\\").replace('"', '\\"')
 
 
+def _raw_message_from_fetch(msg_data: list[Any] | None) -> bytes | None:
+    """Достаёт сырой RFC822 из ответа FETCH (BODY.PEEK[] / RFC822), не полагаясь на одну форму tuple."""
+    if not msg_data:
+        return None
+    candidates: list[bytes] = []
+    for item in msg_data:
+        if isinstance(item, tuple):
+            for part in item:
+                if isinstance(part, (bytes, bytearray)):
+                    candidates.append(bytes(part))
+        elif isinstance(item, (bytes, bytearray)):
+            candidates.append(bytes(item))
+    if not candidates:
+        return None
+    # Первая строка ответа — короткий префикс вида b'1 (BODY[PEEK]...'; тело письма — самый длинный chunk.
+    return max(candidates, key=len)
+
+
 def search_email_ids(mail: imaplib.IMAP4_SSL, contact_email: str) -> list[bytes]:
     """Письма, где клиент в FROM, TO или CC (три поиска — надёжнее на Yandex IMAP)."""
     # readonly=True → EXAMINE: только чтение, без записи состояния ящика в этой сессии.
@@ -232,12 +250,12 @@ def fetch_emails_by_ids(
         if eid in seen:
             continue
         seen.add(eid)
-        # RFC822 помечает \\Seen; RFC822.PEEK — то же тело без изменения флагов (RFC 3501).
-        status, msg_data = mail.fetch(eid, "(RFC822.PEEK)")
+        # RFC822 = BODY[] и может выставить \\Seen; BODY.PEEK[] — без флагов (RFC 3501). Yandex: BAD на RFC822.PEEK.
+        status, msg_data = mail.fetch(eid, "(BODY.PEEK[])")
         if status != "OK" or not msg_data:
             continue
-        raw = msg_data[0][1]
-        if not isinstance(raw, (bytes, bytearray)):
+        raw = _raw_message_from_fetch(msg_data)
+        if not raw:
             continue
         msg = email.message_from_bytes(raw)
         subject = decode_mime_words(msg["Subject"]) or "Без темы"
