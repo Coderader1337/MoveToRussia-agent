@@ -1,7 +1,8 @@
 """
 По email клиента:
-  1) Читает данные из EnvyCRM (lead/search + deal/search, только GET-логика POST search).
-  2) Загружает из ящика менеджера (Yandex IMAP) переписку с этим адресом (FROM / TO / CC).
+  1) Читает данные из EnvyCRM (lead/search + deal/search — те же read-only search, что в fetch_envycrm_by_email.py).
+  2) Загружает из ящика менеджера (Yandex IMAP) переписку с этим адресом (FROM / TO / CC) без побочных эффектов:
+     INBOX открывается через EXAMINE (readonly), тела писем — FETCH RFC822.PEEK (не выставляет \\Seen).
   3) Пишет в Google Sheets: лист CRM — только полезные для агента поля; лист Emails — как раньше.
 
 Переменные .env (как в ваших скриптах):
@@ -211,7 +212,8 @@ def _imap_quote_addr(addr: str) -> str:
 
 def search_email_ids(mail: imaplib.IMAP4_SSL, contact_email: str) -> list[bytes]:
     """Письма, где клиент в FROM, TO или CC (три поиска — надёжнее на Yandex IMAP)."""
-    mail.select("INBOX")
+    # readonly=True → EXAMINE: только чтение, без записи состояния ящика в этой сессии.
+    mail.select("INBOX", readonly=True)
     q = _imap_quote_addr(contact_email.strip())
     found: set[bytes] = set()
     for crit in (f'FROM "{q}"', f'TO "{q}"', f'CC "{q}"'):
@@ -230,7 +232,8 @@ def fetch_emails_by_ids(
         if eid in seen:
             continue
         seen.add(eid)
-        status, msg_data = mail.fetch(eid, "(RFC822)")
+        # RFC822 помечает \\Seen; RFC822.PEEK — то же тело без изменения флагов (RFC 3501).
+        status, msg_data = mail.fetch(eid, "(RFC822.PEEK)")
         if status != "OK" or not msg_data:
             continue
         raw = msg_data[0][1]
