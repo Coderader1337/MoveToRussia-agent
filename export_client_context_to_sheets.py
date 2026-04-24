@@ -181,14 +181,6 @@ def crm_rows_for_sheet(crm_json: dict[str, Any]) -> list[list[Any]]:
     return rows
 
 
-def clean_text(text: str) -> str:
-    if not text:
-        return ""
-    text = text.replace("\r\n", " ").replace("\r", " ").replace("\n", " ")
-    text = re.sub(r"\s+", " ", text)
-    return text.strip()
-
-
 def decode_mime_words(s: str | None) -> str:
     if s is None:
         return ""
@@ -199,30 +191,41 @@ def decode_mime_words(s: str | None) -> str:
     )
 
 
+def _decode_part_payload(part: email.message.Message) -> str:
+    try:
+        payload = part.get_payload(decode=True)
+        if not payload:
+            return ""
+        charset = part.get_content_charset() or "utf-8"
+        return payload.decode(charset, errors="ignore")
+    except Exception:
+        return ""
+
+
 def get_text_from_email(msg: email.message.Message) -> str:
-    text_content = ""
+    """
+    Только text/plain из MIME-дерева: части text/html не используются (без HTML→текст и без regex).
+    Несколько plain-частей (например вложенные alternative) склеиваются через пустую строку.
+    """
+    disp_attachment = re.compile(r"attachment", re.I)
+    chunks: list[str] = []
+
     if msg.is_multipart():
         for part in msg.walk():
-            content_type = part.get_content_type()
-            content_disposition = str(part.get("Content-Disposition", ""))
-            if content_type == "text/plain" and "attachment" not in content_disposition:
-                try:
-                    payload = part.get_payload(decode=True)
-                    if payload:
-                        charset = part.get_content_charset() or "utf-8"
-                        text_content = payload.decode(charset, errors="ignore")
-                        break
-                except Exception:
-                    continue
-    else:
-        try:
-            payload = msg.get_payload(decode=True)
-            if payload:
-                charset = msg.get_content_charset() or "utf-8"
-                text_content = payload.decode(charset, errors="ignore")
-        except Exception:
-            pass
-    return text_content.strip()
+            if part.get_content_maintype() == "multipart":
+                continue
+            if part.get_content_type() != "text/plain":
+                continue
+            if disp_attachment.search(str(part.get("Content-Disposition", ""))):
+                continue
+            block = _decode_part_payload(part).strip()
+            if block:
+                chunks.append(block)
+        return "\n\n".join(chunks).strip()
+
+    if msg.get_content_type() == "text/plain":
+        return _decode_part_payload(msg).strip()
+    return ""
 
 
 def _imap_quote_addr(addr: str) -> str:
@@ -285,7 +288,7 @@ def fetch_emails_by_ids(
         from_header = decode_mime_words(msg["From"]) or ""
         to_header = decode_mime_words(msg["To"]) or ""
         date_str = msg["Date"] or ""
-        text_plain = clean_text(get_text_from_email(msg))
+        text_plain = get_text_from_email(msg)
         ts = 0.0
         if date_str:
             try:
