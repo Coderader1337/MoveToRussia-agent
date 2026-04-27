@@ -1,0 +1,35 @@
+Я дам тебе 2 письма от менеджера клиенту. Первое письмо написано самим менеджером и его мы считаем идеальным. Второе письмо написано ИИ. Твоя задача сравнить, насколько написанное ИИ письмо близко к письму менеджера и дать степень соответствия в процентах. В своем ответе дай только краткое рассуждение на одно предложение и финальный ответ в процентах, больше ничего. Оценку в процентах дай максимально точную, вплоть до одного процента. Мне нужно именно число, а не приблизительные прикидки по типу 50, 75, 100%. Письма:
+Dear Mr. Dixon,
+ 
+Thank you kindly for your inquiry.
+We can confirm that, as a citizen/permanent resident of Ireland, you are eligible to apply for this pathway to relocate to Russia.
+
+To give you a brief overview, the program grants a 3-year Temporary Residence Permit, with the opportunity to apply for Permanent Residence thereafter. The attached presentation provides more detailed information about our company and the application process.
+
+For additional, independent perspectives, you may find these resources helpful:
+
+Industry Coverage: The Shared Values Visa was recently featured in The Invest Immigration Insider. You can read the article here.
+
+Client Experiences: We also feature stories from our clients about their relocation journeys. For example, Keri from Canada, who is currently in the process, writing/talking about her experience on X.  
+https://x.com/TheRussiaBlog/status/1970816989888463092
+Also find a couple of our client reviews of our services attached.
+
+Dear Mr. Dixon, to ensure we provide you with the most relevant information, could you tell us a little more about your situation?
+
+Have you had the opportunity to visit Russia before, or would this be your first trip?
+
+What kind of timeline are you envisioning for your relocation to Russia?
+
+Which family members are planning to relocate with you? 
+
+Are you primarily looking for assistance with the visa and relocation process, or would you also need support with areas like financial transfers or finding real estate?
+
+We look forward to learning more and helping you with your potential relocation to Russia.
+
+------
+Kind regards,
+ 
+Nadia Perry
+Client relationship manager
+www.movetorussia.com
+n.perry@arkvostok.com
