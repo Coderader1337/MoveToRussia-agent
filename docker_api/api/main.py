@@ -284,6 +284,50 @@ def _html_to_text(value: str) -> str:
     return text.strip()
 
 
+def _strip_quoted_reply_text(value: str) -> str:
+    """Удаление вложенной истории переписки из ответа."""
+    if not value:
+        return ""
+
+    text = value.replace("\r", "").strip()
+    split_patterns = [
+        r"(?im)^\s*On .+wrote:\s*$",
+        r"(?im)^\s*В .+писал\(а\):\s*$",
+        r"(?im)^\s*-{2,}\s*Original Message\s*-{2,}\s*$",
+        r"(?im)^\s*Begin forwarded message:\s*$",
+        r"(?im)^\s*-{2,}\s*Forwarded message\s*-{2,}\s*$",
+        r"(?im)^\s*From:\s+.+$",
+        r"(?im)^\s*От:\s+.+$",
+        r"(?im)^\s*Sent:\s+.+$",
+        r"(?im)^\s*Дата:\s+.+$",
+        r"(?im)^\s*To:\s+.+$",
+        r"(?im)^\s*Кому:\s+.+$",
+        r"(?im)^\s*Subject:\s+.+$",
+        r"(?im)^\s*Тема:\s+.+$",
+    ]
+
+    cut_positions = [
+        match.start()
+        for pattern in split_patterns
+        for match in [re.search(pattern, text)]
+        if match
+    ]
+
+    if cut_positions:
+        text = text[: min(cut_positions)].rstrip()
+
+    lines = text.split("\n")
+    cleaned_lines: list[str] = []
+    for line in lines:
+        if re.match(r"^\s*>+", line):
+            break
+        cleaned_lines.append(line)
+
+    cleaned_text = "\n".join(cleaned_lines).strip()
+    cleaned_text = re.sub(r"\n{3,}", "\n\n", cleaned_text)
+    return cleaned_text.strip()
+
+
 def _collect_part_content_types(msg: email.message.Message) -> list[str]:
     """Список MIME типов письма для логирования."""
     if msg.is_multipart():
@@ -318,15 +362,17 @@ def get_text_from_email(msg: email.message.Message) -> str:
                 html_chunks.append(_html_to_text(block))
 
         if plain_chunks:
-            return "\n\n".join(chunk for chunk in plain_chunks if chunk).strip()
+            joined_plain = "\n\n".join(chunk for chunk in plain_chunks if chunk).strip()
+            return _strip_quoted_reply_text(joined_plain)
         if html_chunks:
-            return "\n\n".join(chunk for chunk in html_chunks if chunk).strip()
+            joined_html = "\n\n".join(chunk for chunk in html_chunks if chunk).strip()
+            return _strip_quoted_reply_text(joined_html)
         return ""
 
     if msg.get_content_type() == "text/plain":
-        return _decode_part_payload(msg).strip()
+        return _strip_quoted_reply_text(_decode_part_payload(msg).strip())
     if msg.get_content_type() == "text/html":
-        return _html_to_text(_decode_part_payload(msg))
+        return _strip_quoted_reply_text(_html_to_text(_decode_part_payload(msg)))
     return ""
 
 
