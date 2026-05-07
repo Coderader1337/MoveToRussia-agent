@@ -1,0 +1,193 @@
+{
+  "name": "Get Client Email Thread",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "get-thread",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "webhook-trigger",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1.1,
+      "position": [250, 300],
+      "webhookId": "client-thread-webhook"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Получаем email клиента из входящего запроса\nconst clientEmail = $input.item.json.body.clientEmail || $input.item.json.query.clientEmail;\n\nif (!clientEmail) {\n  throw new Error('clientEmail is required');\n}\n\n// Возвращаем для следующей ноды\nreturn [{\n  json: {\n    clientEmail: clientEmail.trim(),\n    managerEmail: '{{ $credentials.IMAP.user }}',\n    timestamp: new Date().toISOString()\n  }\n}];"
+      },
+      "id": "extract-client-email",
+      "name": "Extract Client Email",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [450, 300]
+    },
+    {
+      "parameters": {
+        "mailbox": "INBOX",
+        "format": "simple",
+        "options": {
+          "customEmailConfig": "=[\"OR\", [\"FROM\", \"{{ $json.clientEmail }}\"], [\"TO\", \"{{ $json.clientEmail }}\"]]",
+          "allowUnauthorizedCerts": false,
+          "forceReconnect": 60,
+          "downloadAttachments": false
+        }
+      },
+      "id": "search-inbox",
+      "name": "Search INBOX",
+      "type": "n8n-nodes-base.emailReadImap",
+      "typeVersion": 2,
+      "position": [650, 200],
+      "credentials": {
+        "imap": {
+          "id": "1",
+          "name": "Yandex IMAP"
+        }
+      },
+      "executeOnce": true,
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "mailbox": "Sent",
+        "format": "simple",
+        "options": {
+          "customEmailConfig": "=[\"OR\", [\"FROM\", \"{{ $json.clientEmail }}\"], [\"TO\", \"{{ $json.clientEmail }}\"]]",
+          "allowUnauthorizedCerts": false,
+          "forceReconnect": 60,
+          "downloadAttachments": false
+        }
+      },
+      "id": "search-sent",
+      "name": "Search Sent",
+      "type": "n8n-nodes-base.emailReadImap",
+      "typeVersion": 2,
+      "position": [650, 400],
+      "credentials": {
+        "imap": {
+          "id": "1",
+          "name": "Yandex IMAP"
+        }
+      },
+      "executeOnce": true,
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {},
+      "id": "merge-emails",
+      "name": "Merge",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 2.1,
+      "position": [850, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Объединяем все письма и сортируем по дате\nconst emails = [];\n\nfor (const item of $input.all()) {\n  if (item.json.date) {\n    emails.push({\n      subject: item.json.subject || 'Без темы',\n      from: item.json.from || '',\n      to: item.json.to || '',\n      date: item.json.date,\n      text: item.json.text || item.json.textPlain || '(текст отсутствует)',\n      timestamp: new Date(item.json.date).getTime()\n    });\n  }\n}\n\n// Сортируем по времени (хронологически)\nemails.sort((a, b) => a.timestamp - b.timestamp);\n\n// Форматируем в текст как в Python скрипте\nconst separator = '='.repeat(78);\nconst innerRule = '-'.repeat(78);\n\nconst formattedEmails = emails.map(email => {\n  return [\n    separator,\n    `Тема: ${email.subject}`,\n    `От: ${email.from}`,\n    `Кому: ${email.to}`,\n    innerRule,\n    email.text,\n    ''\n  ].join('\\n');\n});\n\nconst threadText = formattedEmails.join('\\n');\n\nreturn [{\n  json: {\n    clientEmail: $('Extract Client Email').item.json.clientEmail,\n    emailCount: emails.length,\n    threadText: threadText,\n    emails: emails\n  }\n}];"
+      },
+      "id": "format-thread",
+      "name": "Format Thread",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1050, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {
+          "responseCode": 200,
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          }
+        }
+      },
+      "id": "respond-webhook",
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1250, 300]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Extract Client Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Client Email": {
+      "main": [
+        [
+          {
+            "node": "Search INBOX",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Search Sent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search INBOX": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search Sent": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge": {
+      "main": [
+        [
+          {
+            "node": "Format Thread",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Thread": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {}
+}

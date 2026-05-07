@@ -1,0 +1,175 @@
+{
+  "name": "Get Client Email Thread",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "webhook-trigger",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-node",
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1.1,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            {
+              "name": "manager_email",
+              "value": "={{ $json.body.manager_email || 'e.novik@arkvostok.com' }}"
+            },
+            {
+              "name": "manager_password",
+              "value": "={{ $json.body.manager_password || $env.YANDEX_APP_PASSWORD }}"
+            },
+            {
+              "name": "client_email",
+              "value": "={{ $json.body.client_email }}"
+            },
+            {
+              "name": "sent_mailbox",
+              "value": "={{ $json.body.sent_mailbox || 'Sent' }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "set-variables-node",
+      "name": "Set Variables",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.3,
+      "position": [450, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://YOUR_COMPUTER_IP:8000/api/v1/emails/thread",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "X-API-Key",
+              "value": "={{ $env.MAIL_AGENT_API_KEY }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "manager_email",
+              "value": "={{ $json.manager_email }}"
+            },
+            {
+              "name": "manager_password",
+              "value": "={{ $json.manager_password }}"
+            },
+            {
+              "name": "client_email",
+              "value": "={{ $json.client_email }}"
+            },
+            {
+              "name": "sent_mailbox",
+              "value": "={{ $json.sent_mailbox }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "id": "http-request-node",
+      "name": "Get Email Thread from API",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [650, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Обработка полученных писем\nconst response = $input.first().json;\n\nif (!response.success) {\n  throw new Error(`API Error: ${response.error || 'Unknown error'}`);\n}\n\nconst emails = response.emails || [];\nconst clientEmail = response.client_email;\nconst totalCount = response.total_count;\n\n// Формирование текстового представления переписки для LLM\nlet threadText = `Переписка с клиентом: ${clientEmail}\\n`;\nthreadText += `Всего писем: ${totalCount}\\n\\n`;\nthreadText += '=' .repeat(78) + '\\n\\n';\n\nemails.forEach((email, index) => {\n  threadText += `Письмо ${index + 1} [${email.folder}]\\n`;\n  threadText += `Тема: ${email.subject}\\n`;\n  threadText += `От: ${email.from}\\n`;\n  threadText += `Кому: ${email.to}\\n`;\n  threadText += `Дата: ${email.date}\\n`;\n  threadText += '-'.repeat(78) + '\\n';\n  threadText += email.text_plain + '\\n';\n  threadText += '\\n' + '='.repeat(78) + '\\n\\n';\n});\n\nreturn {\n  json: {\n    success: true,\n    client_email: clientEmail,\n    total_count: totalCount,\n    emails: emails,\n    thread_text: threadText,\n    formatted_for_llm: threadText\n  }\n};"
+      },
+      "id": "code-node",
+      "name": "Process Emails",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [850, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {}
+      },
+      "id": "response-node",
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [1050, 300]
+    }
+  ],
+  "connections": {
+    "Webhook Trigger": {
+      "main": [
+        [
+          {
+            "node": "Set Variables",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set Variables": {
+      "main": [
+        [
+          {
+            "node": "Get Email Thread from API",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Email Thread from API": {
+      "main": [
+        [
+          {
+            "node": "Process Emails",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Process Emails": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [],
+  "triggerCount": 0,
+  "updatedAt": "2026-05-06T00:00:00.000Z",
+  "versionId": "1"
+}

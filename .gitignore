@@ -1,5 +1,35 @@
+# Конфиденциальные данные
 .env
+.env.local
 credentials.json
 token.json
+*.key
+*.pem
+
+# Выгруженные данные
 exported_emails_json/
+exported_emails_txt/
+
+# Python
 venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# API тесты
+test_api_response.json
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Логи
+*.log

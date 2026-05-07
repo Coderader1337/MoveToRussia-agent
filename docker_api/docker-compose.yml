@@ -1,0 +1,29 @@
+version: '3.8'
+
+services:
+  mail-agent-api:
+    build: ./api
+    container_name: movetorussia_mail_agent_api
+    ports:
+      - "8000:8000"
+    environment:
+      # API ключ для защиты endpoint (необязательно для локальной разработки)
+      - API_KEY=${API_KEY:-}
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
+    networks:
+      - mail-agent-network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+networks:
+  mail-agent-network:
+    driver: bridge

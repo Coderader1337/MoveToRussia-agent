@@ -1,0 +1,12 @@
+# FastAPI и ASGI сервер
+fastapi==0.115.0
+uvicorn[standard]==0.32.0
+pydantic[email]==2.9.2
+pydantic-settings==2.5.2
+
+# Для работы с email
+python-dotenv==1.0.1
+email-validator==2.2.0
+
+# Для логирования
+python-json-logger==2.0.7

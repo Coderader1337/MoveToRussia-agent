@@ -1,0 +1,47 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+.cursor/
+
+# Данные проекта
+exported_emails_txt/
+exported_emails_json/
+prompts/
+
+# Конфиденциальные данные
+.env
+credentials.json
+token.json
+*.key
+*.pem
+
+# Git
+.git/
+.gitignore
+
+# Документация и примеры
+README.md
+*.md
+!api/requirements.txt
+
+# N8N workflows
+*.json
+
+# Логи
+*.log
+
+# Прочее
+.DS_Store
+Thumbs.db
