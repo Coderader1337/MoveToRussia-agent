@@ -21,6 +21,7 @@ Endpoints:
 from __future__ import annotations
 
 import email
+import html
 import imaplib
 import logging
 import os
@@ -264,29 +265,68 @@ def _decode_part_payload(part: email.message.Message) -> str:
         return ""
 
 
+def _html_to_text(value: str) -> str:
+    """Преобразование HTML в читаемый plain text."""
+    if not value:
+        return ""
+
+    text = re.sub(r"(?is)<(script|style).*?>.*?</\1>", " ", value)
+    text = re.sub(r"(?i)<br\s*/?>", "\n", text)
+    text = re.sub(r"(?i)</p\s*>", "\n\n", text)
+    text = re.sub(r"(?i)</div\s*>", "\n", text)
+    text = re.sub(r"(?i)</li\s*>", "\n", text)
+    text = re.sub(r"(?s)<[^>]+>", " ", text)
+    text = html.unescape(text)
+    text = text.replace("\r", "")
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    text = re.sub(r"[ \t]+", " ", text)
+    text = re.sub(r" *\n *", "\n", text)
+    return text.strip()
+
+
+def _collect_part_content_types(msg: email.message.Message) -> list[str]:
+    """Список MIME типов письма для логирования."""
+    if msg.is_multipart():
+        return [part.get_content_type() for part in msg.walk()]
+    return [msg.get_content_type()]
+
+
 def get_text_from_email(msg: email.message.Message) -> str:
     """
-    Извлечение text/plain из MIME-дерева.
-    HTML части игнорируются.
+    Извлечение текста из MIME-дерева.
+    Сначала text/plain, затем fallback на text/html.
     """
     disp_attachment = re.compile(r"attachment", re.I)
-    chunks: list[str] = []
+    plain_chunks: list[str] = []
+    html_chunks: list[str] = []
 
     if msg.is_multipart():
         for part in msg.walk():
             if part.get_content_maintype() == "multipart":
                 continue
-            if part.get_content_type() != "text/plain":
-                continue
             if disp_attachment.search(str(part.get("Content-Disposition", ""))):
                 continue
+
+            content_type = part.get_content_type()
             block = _decode_part_payload(part).strip()
-            if block:
-                chunks.append(block)
-        return "\n\n".join(chunks).strip()
+            if not block:
+                continue
+
+            if content_type == "text/plain":
+                plain_chunks.append(block)
+            elif content_type == "text/html":
+                html_chunks.append(_html_to_text(block))
+
+        if plain_chunks:
+            return "\n\n".join(chunk for chunk in plain_chunks if chunk).strip()
+        if html_chunks:
+            return "\n\n".join(chunk for chunk in html_chunks if chunk).strip()
+        return ""
 
     if msg.get_content_type() == "text/plain":
         return _decode_part_payload(msg).strip()
+    if msg.get_content_type() == "text/html":
+        return _html_to_text(_decode_part_payload(msg))
     return ""
 
 
@@ -407,7 +447,7 @@ def fetch_emails_by_ids(
             except (TypeError, ValueError, OverflowError):
                 ts = 0.0
         logger.info(
-            "Письмо обработано: folder=%s, id=%s, subject=%s, date=%s, from=%s, to=%s, text_len=%s",
+            "Письмо обработано: folder=%s, id=%s, subject=%s, date=%s, from=%s, to=%s, text_len=%s, content_types=%s",
             folder_label,
             eid_text,
             _trim_for_log(subject),
@@ -415,6 +455,7 @@ def fetch_emails_by_ids(
             _trim_for_log(from_header),
             _trim_for_log(to_header),
             len(text_plain),
+            _collect_part_content_types(msg),
         )
         out.append(
             {
