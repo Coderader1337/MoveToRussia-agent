@@ -28,7 +28,7 @@ import os
 import re
 import time
 from email.header import decode_header
-from email.utils import parsedate_to_datetime
+from email.utils import getaddresses, parsedate_to_datetime
 from pathlib import Path
 from typing import Any
 
@@ -335,6 +335,37 @@ def _collect_part_content_types(msg: email.message.Message) -> list[str]:
     return [msg.get_content_type()]
 
 
+def _extract_header_emails(*header_values: str) -> set[str]:
+    """Извлечение email адресов из набора заголовков."""
+    parsed = getaddresses(header_values)
+    return {addr.strip().lower() for _, addr in parsed if addr.strip()}
+
+
+def _matches_folder_direction(
+    folder_label: str,
+    manager_email: str,
+    client_email: str,
+    from_header: str,
+    to_header: str,
+    cc_header: str,
+) -> bool:
+    """Проверка, что письмо соответствует ожидаемому направлению папки."""
+    folder_name = folder_label.strip().lower()
+    manager = manager_email.strip().lower()
+    client = client_email.strip().lower()
+
+    from_emails = _extract_header_emails(from_header)
+    recipient_emails = _extract_header_emails(to_header, cc_header)
+
+    if folder_name == "inbox":
+        return client in from_emails
+
+    if folder_name == "sent":
+        return manager in from_emails and client in recipient_emails
+
+    return True
+
+
 def get_text_from_email(msg: email.message.Message) -> str:
     """
     Извлечение текста из MIME-дерева.
@@ -437,6 +468,8 @@ def search_email_ids(
 def fetch_emails_by_ids(
     mail: imaplib.IMAP4_SSL,
     email_ids: list[bytes],
+    manager_email: str,
+    client_email: str,
     folder_label: str = "",
 ) -> list[dict[str, Any]]:
     """Загрузка писем по списку ID."""
@@ -484,6 +517,7 @@ def fetch_emails_by_ids(
         subject = decode_mime_words(msg["Subject"]) or "Без темы"
         from_header = decode_mime_words(msg["From"]) or ""
         to_header = decode_mime_words(msg["To"]) or ""
+        cc_header = decode_mime_words(msg["Cc"]) or ""
         date_str = msg["Date"] or ""
         text_plain = get_text_from_email(msg)
         ts = 0.0
@@ -492,6 +526,25 @@ def fetch_emails_by_ids(
                 ts = parsedate_to_datetime(date_str).timestamp()
             except (TypeError, ValueError, OverflowError):
                 ts = 0.0
+
+        if not _matches_folder_direction(
+            folder_label=folder_label,
+            manager_email=manager_email,
+            client_email=client_email,
+            from_header=from_header,
+            to_header=to_header,
+            cc_header=cc_header,
+        ):
+            logger.info(
+                "Письмо пропущено по фильтру папки: folder=%s, id=%s, from=%s, to=%s, cc=%s",
+                folder_label,
+                eid_text,
+                _trim_for_log(from_header),
+                _trim_for_log(to_header),
+                _trim_for_log(cc_header),
+            )
+            continue
+
         logger.info(
             "Письмо обработано: folder=%s, id=%s, subject=%s, date=%s, from=%s, to=%s, text_len=%s, content_types=%s",
             folder_label,
@@ -561,7 +614,7 @@ def collect_emails(
         # Входящие письма
         ids_in = search_email_ids(mail, client_email, "INBOX")
         logger.info("Найдены входящие письма: count=%s", len(ids_in))
-        emails.extend(fetch_emails_by_ids(mail, ids_in, "INBOX"))
+        emails.extend(fetch_emails_by_ids(mail, ids_in, manager_email, client_email, "INBOX"))
 
         # Исходящие письма
         try:
@@ -571,7 +624,15 @@ def collect_emails(
                 sent_mailbox,
                 len(ids_out),
             )
-            emails.extend(fetch_emails_by_ids(mail, ids_out, sent_mailbox))
+            emails.extend(
+                fetch_emails_by_ids(
+                    mail,
+                    ids_out,
+                    manager_email,
+                    client_email,
+                    sent_mailbox,
+                )
+            )
         except (UnicodeEncodeError, imaplib.IMAP4.error) as e:
             # Если не удалось открыть папку исходящих, продолжаем с тем что есть
             logger.warning("Не удалось открыть папку исходящих %s: %s", sent_mailbox, e)
