@@ -39,8 +39,11 @@ from pydantic import BaseModel, EmailStr, Field
 IMAP_SERVER = "imap.yandex.ru"
 IMAP_PORT = 993
 DEFAULT_LOG_FILE = "/app/logs/imap_debug.log"
-IMAP_SEARCH_RETRIES = 10
-IMAP_SEARCH_RETRY_DELAY_SECONDS = 1.0
+IMAP_SEARCH_RETRIES = int(os.environ.get("IMAP_SEARCH_RETRIES", "20"))
+IMAP_SEARCH_RETRY_DELAY_SECONDS = float(
+    os.environ.get("IMAP_SEARCH_RETRY_DELAY_SECONDS", "1.5")
+)
+IMAP_SOCKET_TIMEOUT = int(os.environ.get("IMAP_SOCKET_TIMEOUT", "60"))
 
 # API Key для безопасности (можно установить через переменную окружения)
 API_KEY_NAME = "X-API-Key"
@@ -74,6 +77,12 @@ def configure_logging() -> logging.Logger:
 
 
 logger = configure_logging()
+logger.info(
+    "IMAP retry policy: retries=%s, delay=%.1fs, socket_timeout=%ss",
+    IMAP_SEARCH_RETRIES,
+    IMAP_SEARCH_RETRY_DELAY_SECONDS,
+    IMAP_SOCKET_TIMEOUT,
+)
 
 app = FastAPI(
     title="MovetoRussia Mail Agent API",
@@ -174,13 +183,49 @@ def _trim_for_log(value: str, limit: int = 160) -> str:
     return f"{value[:limit]}..."
 
 
-def _is_transient_imap_search_error(status: str, messages: list[Any] | None) -> bool:
-    """Проверка, что SEARCH упал на временной backend error у провайдера."""
+def _is_transient_imap_error(status: str, messages: list[Any] | None) -> bool:
+    """Временная ошибка IMAP (SEARCH/SELECT) — имеет смысл повторить запрос."""
     if status == "OK":
         return False
 
     joined_messages = " ".join(_decode_imap_values(messages)).upper()
-    return "SEARCH BACKEND ERROR" in joined_messages or "UNAVAILABLE" in joined_messages
+
+    permanent_markers = (
+        "AUTHENTICATIONFAILED",
+        "AUTHENTICATION FAILED",
+        "INVALID",
+        "NONEXISTENT",
+        "NO PERMISSION",
+        "PERMISSION DENIED",
+        "NOT AUTHORIZED",
+    )
+    if any(marker in joined_messages for marker in permanent_markers):
+        return False
+
+    transient_markers = (
+        "SEARCH BACKEND ERROR",
+        "BACKEND ERROR",
+        "UNAVAILABLE",
+        "TRYAGAIN",
+        "TRY AGAIN",
+        "TEMPORARY",
+        "TIMEOUT",
+        "SYSTEM ERROR",
+        "INTERNAL ERROR",
+        "SERVER BUSY",
+        "OVERLOAD",
+        "TOO MANY",
+    )
+    if any(marker in joined_messages for marker in transient_markers):
+        return True
+
+    # Yandex иногда отвечает NO/BAD без текста на SEARCH — тоже считаем временным.
+    return status in ("NO", "BAD")
+
+
+def _is_transient_imap_search_error(status: str, messages: list[Any] | None) -> bool:
+    """Проверка, что SEARCH упал на временной backend error у провайдера."""
+    return _is_transient_imap_error(status, messages)
 
 
 def _search_ids_by_criterion(
@@ -229,11 +274,26 @@ def _search_ids_by_criterion(
 
         if attempt < retries:
             logger.warning(
-                "Временная ошибка IMAP SEARCH, повтор через %.1f сек: mailbox=%s, criteria=%s",
+                "Временная ошибка IMAP SEARCH, повтор через %.1f сек: mailbox=%s, criteria=%s, attempt=%s/%s",
                 IMAP_SEARCH_RETRY_DELAY_SECONDS,
                 mailbox,
                 criterion,
+                attempt,
+                retries,
             )
+            try:
+                reselect_status, reselect_data = mail.select(mailbox, readonly=True)
+                logger.info(
+                    "IMAP SELECT перед повтором SEARCH: mailbox=%s, status=%s, data=%s",
+                    mailbox,
+                    reselect_status,
+                    _decode_imap_values(reselect_data),
+                )
+            except Exception:
+                logger.exception(
+                    "Не удалось повторно SELECT перед retry SEARCH: mailbox=%s",
+                    mailbox,
+                )
             time.sleep(IMAP_SEARCH_RETRY_DELAY_SECONDS)
 
     raise IncompleteImapSearchError(
@@ -429,6 +489,53 @@ def _raw_message_from_fetch(msg_data: list[Any] | None) -> bytes | None:
     return max(candidates, key=len)
 
 
+def _imap_select_with_retry(mail: imaplib.IMAP4_SSL, mailbox: str) -> None:
+    """Открытие IMAP-папки с повтором при временных ошибках Yandex."""
+    last_status = ""
+    last_data: list[Any] | None = None
+
+    for attempt in range(1, IMAP_SEARCH_RETRIES + 1):
+        logger.info(
+            "IMAP SELECT attempt: mailbox=%s, attempt=%s/%s",
+            mailbox,
+            attempt,
+            IMAP_SEARCH_RETRIES,
+        )
+        status, data = mail.select(mailbox, readonly=True)
+        logger.info(
+            "IMAP SELECT result: mailbox=%s, attempt=%s/%s, status=%s, data=%s",
+            mailbox,
+            attempt,
+            IMAP_SEARCH_RETRIES,
+            status,
+            _decode_imap_values(data),
+        )
+        if status == "OK":
+            return
+
+        last_status = status
+        last_data = data
+
+        if not _is_transient_imap_error(status, data):
+            raise imaplib.IMAP4.error(
+                f"Не удалось открыть папку {mailbox}: status={status}, "
+                f"response={_decode_imap_values(data)}"
+            )
+
+        if attempt < IMAP_SEARCH_RETRIES:
+            logger.warning(
+                "Временная ошибка IMAP SELECT, повтор через %.1f сек: mailbox=%s",
+                IMAP_SEARCH_RETRY_DELAY_SECONDS,
+                mailbox,
+            )
+            time.sleep(IMAP_SEARCH_RETRY_DELAY_SECONDS)
+
+    raise IncompleteImapSearchError(
+        f"IMAP SELECT backend error for {mailbox}: status={last_status}, "
+        f"response={_decode_imap_values(last_data)}"
+    )
+
+
 def search_email_ids(
     mail: imaplib.IMAP4_SSL, contact_email: str, mailbox: str = "INBOX"
 ) -> list[bytes]:
@@ -438,16 +545,7 @@ def search_email_ids(
         mailbox,
         contact_email,
     )
-    select_status, select_data = mail.select(mailbox, readonly=True)
-    logger.info(
-        "IMAP SELECT: mailbox=%s, readonly=%s, status=%s, data=%s",
-        mailbox,
-        True,
-        select_status,
-        _decode_imap_values(select_data),
-    )
-    if select_status != "OK":
-        raise imaplib.IMAP4.error(f"Не удалось открыть папку {mailbox}")
+    _imap_select_with_retry(mail, mailbox)
 
     q = _imap_quote_addr(contact_email.strip())
     found: set[bytes] = set()
@@ -579,7 +677,7 @@ def connect_imap(manager_email: str, manager_password: str) -> imaplib.IMAP4_SSL
         IMAP_PORT,
         manager_email,
     )
-    mail = imaplib.IMAP4_SSL(IMAP_SERVER, IMAP_PORT)
+    mail = imaplib.IMAP4_SSL(IMAP_SERVER, IMAP_PORT, timeout=IMAP_SOCKET_TIMEOUT)
     logger.info("SSL соединение с IMAP установлено")
     mail.login(manager_email, manager_password)
     logger.info("IMAP аутентификация успешна: manager_email=%s", manager_email)

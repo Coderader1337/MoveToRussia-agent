@@ -9,6 +9,11 @@ token.json
 # Выгруженные данные
 exported_emails_json/
 exported_emails_txt/
+crm_client_emails.csv
+deepseek_sheet_pending.csv
+deepseek_rating.log
+audit_mgr_emails.txt
+audit_problem_rows.txt
 
 # Python
 venv/

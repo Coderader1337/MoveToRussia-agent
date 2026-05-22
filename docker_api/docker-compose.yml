@@ -11,6 +11,9 @@ services:
       - API_KEY=${API_KEY:-}
       - LOG_FILE_PATH=/app/logs/imap_debug.log
       - LOG_LEVEL=INFO
+      - IMAP_SEARCH_RETRIES=${IMAP_SEARCH_RETRIES:-20}
+      - IMAP_SEARCH_RETRY_DELAY_SECONDS=${IMAP_SEARCH_RETRY_DELAY_SECONDS:-1.5}
+      - IMAP_SOCKET_TIMEOUT=${IMAP_SOCKET_TIMEOUT:-60}
     volumes:
       - ./logs:/app/logs
     restart: unless-stopped
