@@ -1,0 +1,473 @@
+{
+  "totals": {
+    "messages": 10752,
+    "incoming": 4826,
+    "outgoing": 5926,
+    "clients": 1110,
+    "two_way_clients": 459,
+    "per_manager": {
+      "a.antonova@arkvostok.com": 6862,
+      "e.novik@arkvostok.com": 3890
+    }
+  },
+  "timezones": [
+    [
+      "GMT",
+      329
+    ],
+    [
+      "EST",
+      113
+    ],
+    [
+      "CET",
+      110
+    ],
+    [
+      "UTC",
+      104
+    ],
+    [
+      "CEST",
+      63
+    ],
+    [
+      "PST",
+      51
+    ],
+    [
+      "CST",
+      43
+    ],
+    [
+      "PDT",
+      36
+    ],
+    [
+      "EDT",
+      32
+    ],
+    [
+      "CDT",
+      29
+    ],
+    [
+      "MST",
+      28
+    ],
+    [
+      "AEST",
+      17
+    ],
+    [
+      "MSK",
+      11
+    ],
+    [
+      "EET",
+      9
+    ],
+    [
+      "EEST",
+      8
+    ],
+    [
+      "IST",
+      7
+    ],
+    [
+      "AWST",
+      6
+    ],
+    [
+      "MDT",
+      4
+    ],
+    [
+      "BST",
+      3
+    ],
+    [
+      "ART",
+      1
+    ]
+  ],
+  "booking_channels": [
+    [
+      "WhatsApp",
+      995
+    ],
+    [
+      "Telegram",
+      839
+    ],
+    [
+      "Phone call",
+      428
+    ],
+    [
+      "Zoom",
+      215
+    ],
+    [
+      "Video call",
+      181
+    ],
+    [
+      "Google Meet",
+      17
+    ],
+    [
+      "Skype",
+      3
+    ],
+    [
+      "Calendly",
+      3
+    ]
+  ],
+  "visa_terms": [
+    [
+      "Visa (general)",
+      5138
+    ],
+    [
+      "Temporary Residence (TRP)",
+      3293
+    ],
+    [
+      "Shared Values Visa",
+      3057
+    ],
+    [
+      "Permanent Residence (PRP)",
+      2791
+    ],
+    [
+      "Citizenship",
+      2201
+    ],
+    [
+      "Golden Visa",
+      2050
+    ],
+    [
+      "Registration",
+      1681
+    ]
+  ],
+  "topics": [
+    [
+      "Логистика переезда",
+      8810
+    ],
+    [
+      "Виза и правовой статус",
+      6748
+    ],
+    [
+      "Звонки и расписание",
+      6494
+    ],
+    [
+      "Оплата и стоимость",
+      6297
+    ],
+    [
+      "Сроки и этапы процесса",
+      6217
+    ],
+    [
+      "Безопасность и чувствительные темы",
+      6071
+    ],
+    [
+      "Семья",
+      5057
+    ]
+  ],
+  "top_client_questions": [
+    {
+      "count": 55,
+      "example": "~What is an average cost of a weekly hotel stay for 2 that might include a breakfast?"
+    },
+    {
+      "count": 54,
+      "example": "Follow-up questions: Procedure: Can they first perform the biopsy and then the surgery?"
+    },
+    {
+      "count": 53,
+      "example": "To better gauge the full cost of this health tour what other typical expenses, aside from airfare, might I expect to pay?"
+    },
+    {
+      "count": 53,
+      "example": "Visa costs for both my daughter and I?"
+    },
+    {
+      "count": 53,
+      "example": "How would I pay the initial retainer fee?"
+    },
+    {
+      "count": 53,
+      "example": "Assistance is mentioned in your pricing, is transportation included?"
+    },
+    {
+      "count": 53,
+      "example": "Or would we use the subway or rent a car?"
+    },
+    {
+      "count": 53,
+      "example": "What is meant by assistance?"
+    },
+    {
+      "count": 51,
+      "example": "~ will I be required to see a doctor here for records or will these be obtained via virtual consultations?"
+    },
+    {
+      "count": 48,
+      "example": "~if yes, are websites available to show available real estate, businesses or stocks?"
+    },
+    {
+      "count": 40,
+      "example": "Could you please correct that?"
+    },
+    {
+      "count": 39,
+      "example": "For the actual residency application, is it expected by officials to use the Cyrillic alphabet for signatures?"
+    },
+    {
+      "count": 37,
+      "example": "Could you kindly provide a scan of your passport so that we can double-check the details?"
+    },
+    {
+      "count": 33,
+      "example": "As I am not sure which week out of the six week stay duration the application is delivered in person, would it be advisable to reorder it?"
+    },
+    {
+      "count": 32,
+      "example": "Whenever you are ready, could you let us know if you have given any thought to an approximate travel date?"
+    },
+    {
+      "count": 31,
+      "example": "My best regards Lynn Docherty (I think my name in Russian would be spelled as Линн Догерти?"
+    },
+    {
+      "count": 30,
+      "example": "As the mailed IdHS results are not printed on any special paper (as opposed to a birth certificate, for instance), I assume that ones apostilled from a PDF submission are valid?"
+    },
+    {
+      "count": 28,
+      "example": "Would you agree the SM-clinic might be the easiest of the three to explore?"
+    },
+    {
+      "count": 28,
+      "example": "Is a more tailored service available that might bring down the cost?"
+    },
+    {
+      "count": 28,
+      "example": "Is the temporary residence visa applying to live in Russia?"
+    },
+    {
+      "count": 28,
+      "example": "If yes, is it possible to first visit without this option?"
+    },
+    {
+      "count": 28,
+      "example": "I would like this health tour a means to experience your country and explore options —- if this might be available to me through a health tour?"
+    },
+    {
+      "count": 28,
+      "example": "So to end, my questions are, ~does a health tour allow opportunity to look at investment and living opportunities?"
+    },
+    {
+      "count": 28,
+      "example": "Or is the “temporary visa” needed ?"
+    },
+    {
+      "count": 28,
+      "example": "And average dinner costs?"
+    },
+    {
+      "count": 28,
+      "example": "~With the threat of war, are there precautions I should be considering?"
+    },
+    {
+      "count": 28,
+      "example": "Have I provided needed information that allows this?"
+    },
+    {
+      "count": 27,
+      "example": "Belobragin?"
+    },
+    {
+      "count": 27,
+      "example": "Regarding the onboarding call, would it be convenient to schedule it on Thursday or Friday next week ?"
+    },
+    {
+      "count": 27,
+      "example": "Does a health tour allow opportunities to explore investment and living options, or is a “temporary visa” required?"
+    },
+    {
+      "count": 27,
+      "example": "And the average cost of dinner?"
+    },
+    {
+      "count": 27,
+      "example": "With the threat of war, are there precautions I should consider?"
+    },
+    {
+      "count": 27,
+      "example": "What timeline works best for you?"
+    },
+    {
+      "count": 27,
+      "example": "When would you and your daughter like to visit Russia for the health tour?"
+    },
+    {
+      "count": 27,
+      "example": "Recovery: Dissolvable stitches are available – does the surgeon offer a “no-scarring” approach?"
+    },
+    {
+      "count": 27,
+      "example": "What about the biopsy and any other things that need to be performed?"
+    },
+    {
+      "count": 27,
+      "example": "What is your success rate in removing parotid gland tumors without causing facial paralysis?"
+    },
+    {
+      "count": 27,
+      "example": "Are antibiotics used during the surgery, and if so, what are they called so I can research them?"
+    },
+    {
+      "count": 27,
+      "example": "What is the timeline from the CT scan to the surgery?"
+    },
+    {
+      "count": 27,
+      "example": "Timeline: How many days does it take from the first visit to the surgery?"
+    }
+  ],
+  "booking_phrases": [
+    [
+      "If this service interests you, please feel free to contact us, and we can schedule a brief call to answer any questions you may have.",
+      73
+    ],
+    [
+      "We would be happy to arrange a call with our General Managing Partner, Mr.",
+      62
+    ],
+    [
+      "If you are interested in learning more about our Golden Visa process, let’s schedule a call at your convenience.",
+      52
+    ],
+    [
+      "It was a pleasure to meet you during our onboarding call on Friday.",
+      47
+    ],
+    [
+      "I completely understand how busy things can get, so please let me know if there’s a more convenient time to reconnect or if there’s any additional information I can provide to assist your decision-making process.",
+      36
+    ],
+    [
+      "Would you be available for a brief call next week?",
+      33
+    ],
+    [
+      "When the agreement is signed from both sides and the initial retainer is funded, we will do an onboarding call with you to initiate the process.",
+      32
+    ],
+    [
+      "If we complete the above steps this week, we can set up an onboarding call as early as next week .",
+      31
+    ],
+    [
+      "After the agreement is fully executed by both parties and the retainer is funded, we will schedule an onboarding call to begin the process.",
+      26
+    ],
+    [
+      "Watanabe, Thank you for your time on the onboarding call today!",
+      26
+    ],
+    [
+      "If the above sounds like a good plan, I will go ahead and draft the agreements, send you the payment details, and we can schedule your onboarding call.",
+      25
+    ],
+    [
+      "After the agreement is fully executed by both parties and the retainer is funded (the payment details are attached), we will schedule an onboarding call to begin the process.",
+      25
+    ],
+    [
+      "Is Sunday still good for the onboarding call?",
+      25
+    ],
+    [
+      "As a next step, may I suggest we schedule a call?",
+      24
+    ],
+    [
+      "Once we receive the signed contract and payment, we will schedule your onboarding call (with a Spanish translator present) and begin the process immediately.",
+      24
+    ],
+    [
+      "I'd like to set up a call to see what beginning the process will be like and most likely start the process.",
+      23
+    ],
+    [
+      "I´ve put down the time preliminary for Sunday for the onboarding call at the same time as last Sunday.",
+      23
+    ],
+    [
+      "For the onboarding call, what is a good time for you next week?",
+      22
+    ],
+    [
+      "Shall we schedule the onboarding call for the second week of April?",
+      21
+    ],
+    [
+      "During the onboarding call above, we will also disclose the brokerages we propose to use for the financial infrastructure and answer any other questions you may have.",
+      21
+    ],
+    [
+      "When the agreement is signed from both side and the initial payment is done (we can agree on instalment payment of half of the retainer first) we will do an onboarding call with you to initiate the process.",
+      21
+    ],
+    [
+      "If we complete the above steps this week, we can set up an onboarding call.",
+      21
+    ],
+    [
+      "Luoranen, Thank you for your time today on the onboarding call.",
+      19
+    ],
+    [
+      "Diaz Lopez, Would you be available for a call at 14:00 CEST ( UTC +2 ) on Tuesday the 15th of July?",
+      19
+    ],
+    [
+      "After you have had a chance to review the information, I would be happy to schedule a call to address any questions you might have.",
+      19
+    ],
+    [
+      "Once all the above steps are completed, we will book an onboarding call and start the process right away.",
+      18
+    ],
+    [
+      "We look forward to the onboarding call on Friday.",
+      18
+    ],
+    [
+      "If you are interested, please let us know what time works best for you and provide us with your time zone.",
+      18
+    ],
+    [
+      "We are looking forward towards the onboarding call on Monday.",
+      18
+    ],
+    [
+      "Diaz Lopez, We look forward to the onboarding call with you in 45 minutes.",
+      18
+    ]
+  ]
+}

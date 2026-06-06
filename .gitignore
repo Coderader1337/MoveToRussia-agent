@@ -9,6 +9,8 @@ token.json
 # Выгруженные данные
 exported_emails_json/
 exported_emails_txt/
+mailbox_export/
+knowledge_base/_intermediate/
 crm_client_emails.csv
 deepseek_sheet_pending.csv
 deepseek_rating.log
