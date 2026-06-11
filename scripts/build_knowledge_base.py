@@ -51,6 +51,7 @@ JSONL_PATH = EXPORT_DIR / "all_messages.jsonl"
 KB_DIR = ROOT / "knowledge_base"
 INTERMEDIATE_DIR = KB_DIR / "_intermediate"
 KB_PATH = KB_DIR / "movetorussia_agent_kb.md"
+TIMEZONE_REF_PATH = ROOT / "prompts" / "timezone_reference.md"
 
 DEEPSEEK_API_URL = "https://api.deepseek.com/chat/completions"
 DEEPSEEK_MODEL = "deepseek-v4-pro"
@@ -461,9 +462,10 @@ def _map_one(
     msgs: list[dict[str, Any]],
     temperature: float,
     log_lock: Lock,
+    force: bool,
 ) -> tuple[int, str | None]:
     cache = INTERMEDIATE_DIR / f"map_{i:03d}.json"
-    if cache.is_file():
+    if cache.is_file() and not force:
         try:
             note = json.loads(cache.read_text(encoding="utf-8"))["note"]
             with log_lock:
@@ -494,6 +496,7 @@ def run_map(
     max_threads: int,
     temperature: float,
     workers: int,
+    force: bool = False,
 ) -> list[str]:
     INTERMEDIATE_DIR.mkdir(parents=True, exist_ok=True)
     # Только двусторонние диалоги, по убыванию числа писем (богаче контент).
@@ -515,7 +518,7 @@ def run_map(
     results: dict[int, str] = {}
     with ThreadPoolExecutor(max_workers=workers) as ex:
         futures = [
-            ex.submit(_map_one, i, total, client, msgs, temperature, log_lock)
+            ex.submit(_map_one, i, total, client, msgs, temperature, log_lock, force)
             for i, (client, msgs) in enumerate(ranked, start=1)
         ]
         for fut in as_completed(futures):
@@ -596,6 +599,12 @@ def render_data_appendix(stats: dict[str, Any]) -> str:
         f"клиентов: **{t['clients']}**, двусторонних диалогов: "
         f"**{t['two_way_clients']}**."
     )
+    per_mgr = t.get("per_manager") or {}
+    if per_mgr:
+        lines.append("")
+        lines.append("По ящикам менеджеров: " + ", ".join(
+            f"{addr.split('@')[0]} — {cnt}" for addr, cnt in sorted(per_mgr.items())
+        ) + ".")
     lines.append("")
 
     def table(title: str, rows: list[tuple], headers: tuple[str, str]) -> None:
@@ -628,6 +637,19 @@ def render_data_appendix(stats: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def inject_timezone_reference(md: str) -> str:
+    """Добавляет справочник часовых поясов в раздел 5, если его ещё нет."""
+    marker = "### Справочник часовых поясов"
+    if marker in md or not TIMEZONE_REF_PATH.is_file():
+        return md
+    ref = TIMEZONE_REF_PATH.read_text(encoding="utf-8").strip()
+    anchor = "## 6."
+    pos = md.find(anchor)
+    if pos == -1:
+        return md.rstrip() + "\n\n" + ref + "\n"
+    return md[:pos].rstrip() + "\n\n" + ref + "\n\n" + md[pos:]
+
+
 def write_kb(final_md: str, stats: dict[str, Any]) -> None:
     KB_DIR.mkdir(parents=True, exist_ok=True)
     header = (
@@ -636,7 +658,7 @@ def write_kb(final_md: str, stats: dict[str, Any]) -> None:
     )
     body_parts = [header]
     if final_md.strip():
-        body_parts.append(final_md.strip())
+        body_parts.append(inject_timezone_reference(final_md.strip()))
         body_parts.append("\n\n---\n")
     else:
         body_parts.append("# База знаний MoveToRussia (LLM-слой пропущен)\n")
@@ -653,6 +675,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--skip-llm", action="store_true", help="Только детерминированный анализ")
     p.add_argument("--max-threads", type=int, default=DEFAULT_MAX_THREADS)
     p.add_argument("--workers", type=int, default=6, help="Параллельных запросов к DeepSeek")
+    p.add_argument("--force-llm", action="store_true", help="Пересобрать LLM-слой без кэша")
     p.add_argument("--temperature", type=float, default=DEEPSEEK_TEMPERATURE)
     return p.parse_args()
 
@@ -678,10 +701,11 @@ def main() -> int:
             max_threads=args.max_threads,
             temperature=args.temperature,
             workers=args.workers,
+            force=args.force_llm,
         )
         print(f"  Map готов: {len(notes)} заметок за {time.time()-t0:.0f} c")
         print("LLM reduce-фаза…")
-        final_md = run_reduce(notes, temperature=args.temperature)
+        final_md = run_reduce(notes, temperature=args.temperature, force=args.force_llm)
 
     write_kb(final_md, stats)
     print(f"\nГотово. База знаний: {KB_PATH}")

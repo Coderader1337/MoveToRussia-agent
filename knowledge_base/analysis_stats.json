@@ -1,91 +1,112 @@
 {
   "totals": {
-    "messages": 10752,
-    "incoming": 4826,
-    "outgoing": 5926,
-    "clients": 1110,
-    "two_way_clients": 459,
+    "messages": 13803,
+    "incoming": 7193,
+    "outgoing": 6610,
+    "clients": 1333,
+    "two_way_clients": 561,
     "per_manager": {
-      "a.antonova@arkvostok.com": 6862,
-      "e.novik@arkvostok.com": 3890
+      "n.perry@arkvostok.com": 4995,
+      "a.antonova@arkvostok.com": 4862,
+      "e.novik@arkvostok.com": 3946
     }
   },
   "timezones": [
     [
       "GMT",
-      329
+      640
     ],
     [
       "EST",
-      113
+      210
     ],
     [
       "CET",
-      110
+      137
     ],
     [
       "UTC",
-      104
-    ],
-    [
-      "CEST",
-      63
+      117
     ],
     [
       "PST",
-      51
-    ],
-    [
-      "CST",
-      43
-    ],
-    [
-      "PDT",
-      36
+      110
     ],
     [
       "EDT",
-      32
+      99
     ],
     [
-      "CDT",
-      29
+      "PDT",
+      56
+    ],
+    [
+      "CST",
+      51
     ],
     [
       "MST",
-      28
+      49
+    ],
+    [
+      "CEST",
+      46
+    ],
+    [
+      "CDT",
+      36
     ],
     [
       "AEST",
-      17
+      29
     ],
     [
       "MSK",
-      11
-    ],
-    [
-      "EET",
-      9
-    ],
-    [
-      "EEST",
-      8
-    ],
-    [
-      "IST",
-      7
-    ],
-    [
-      "AWST",
-      6
+      28
     ],
     [
       "MDT",
-      4
+      12
+    ],
+    [
+      "AWST",
+      10
     ],
     [
       "BST",
+      9
+    ],
+    [
+      "IST",
+      8
+    ],
+    [
+      "SGT",
+      6
+    ],
+    [
+      "COT",
+      5
+    ],
+    [
+      "ACST",
+      5
+    ],
+    [
+      "EEST",
+      4
+    ],
+    [
+      "EET",
       3
+    ],
+    [
+      "NZST",
+      3
+    ],
+    [
+      "CLT",
+      2
     ],
     [
       "ART",
@@ -95,31 +116,31 @@
   "booking_channels": [
     [
       "WhatsApp",
-      995
+      1553
     ],
     [
       "Telegram",
-      839
+      937
     ],
     [
       "Phone call",
-      428
-    ],
-    [
-      "Zoom",
-      215
+      437
     ],
     [
       "Video call",
-      181
+      228
     ],
     [
-      "Google Meet",
-      17
+      "Zoom",
+      212
     ],
     [
       "Skype",
-      3
+      14
+    ],
+    [
+      "Google Meet",
+      11
     ],
     [
       "Calendly",
@@ -129,64 +150,68 @@
   "visa_terms": [
     [
       "Visa (general)",
-      5138
+      5665
     ],
     [
       "Temporary Residence (TRP)",
-      3293
+      3831
     ],
     [
       "Shared Values Visa",
-      3057
+      3645
     ],
     [
       "Permanent Residence (PRP)",
-      2791
+      2963
     ],
     [
       "Citizenship",
-      2201
+      2275
     ],
     [
       "Golden Visa",
-      2050
+      1724
     ],
     [
       "Registration",
-      1681
+      1647
     ]
   ],
   "topics": [
     [
       "Логистика переезда",
-      8810
+      10588
     ],
     [
       "Виза и правовой статус",
-      6748
+      7669
     ],
     [
       "Звонки и расписание",
-      6494
-    ],
-    [
-      "Оплата и стоимость",
-      6297
-    ],
-    [
-      "Сроки и этапы процесса",
-      6217
+      7596
     ],
     [
       "Безопасность и чувствительные темы",
-      6071
+      7174
+    ],
+    [
+      "Сроки и этапы процесса",
+      7120
+    ],
+    [
+      "Оплата и стоимость",
+      7105
     ],
     [
       "Семья",
-      5057
+      5446
     ]
   ],
   "top_client_questions": [
+    {
+      "count": 55,
+      "example": "Could you please correct that?"
+    },
     {
       "count": 55,
       "example": "~What is an average cost of a weekly hotel stay for 2 that might include a breakfast?"
@@ -228,8 +253,8 @@
       "example": "~if yes, are websites available to show available real estate, businesses or stocks?"
     },
     {
-      "count": 40,
-      "example": "Could you please correct that?"
+      "count": 39,
+      "example": "- What is your potential desired timeline?"
     },
     {
       "count": 39,
@@ -237,7 +262,15 @@
     },
     {
       "count": 37,
+      "example": "- Are you in the exploration / evaluation stage or have you already decided to relocate to Russia?"
+    },
+    {
+      "count": 37,
       "example": "Could you kindly provide a scan of your passport so that we can double-check the details?"
+    },
+    {
+      "count": 36,
+      "example": "Is there any other options?"
     },
     {
       "count": 33,
@@ -245,11 +278,67 @@
     },
     {
       "count": 32,
+      "example": "Have you previously visited Russia or is this going to be your first time?"
+    },
+    {
+      "count": 32,
+      "example": "Do you only need assistance with the relocation, or do you also need assistance with transferring funds to Russia and help with renting or buying real estate?"
+    },
+    {
+      "count": 32,
+      "example": "Is the accurate?"
+    },
+    {
+      "count": 32,
       "example": "Whenever you are ready, could you let us know if you have given any thought to an approximate travel date?"
     },
     {
       "count": 31,
+      "example": "If we start this process right now, do you think I could have everything for the visa prepared, prescriptions translated, checked over & all ready to go by mid to end of November 2025?"
+    },
+    {
+      "count": 31,
+      "example": "Are there solutions in place or perhaps more accurate instructions on how to complete this process without the delay this client experienced?"
+    },
+    {
+      "count": 31,
+      "example": "Just so I’m clear these sections have been replaced with Appendix 2?"
+    },
+    {
+      "count": 31,
+      "example": "If not, should I contact them directly or will your company be the intermediary between myself & Let’s Russia?"
+    },
+    {
+      "count": 31,
+      "example": "Could you explain how this process works between myself, your company & Lets Russia so I’m clear on what’s expected from myself in regards to dealing with both your company & Let’s Russia?"
+    },
+    {
+      "count": 31,
+      "example": "Do I need to reach out to them directly & deal with them separately?"
+    },
+    {
+      "count": 31,
+      "example": "Is your company the intermediary?"
+    },
+    {
+      "count": 31,
+      "example": "Or perhaps it’s a bit of both?"
+    },
+    {
+      "count": 31,
+      "example": "Structuring the payments for the upfront retainer fee of $3300: Would it be possible schedule the payments with these amounts on these dates?"
+    },
+    {
+      "count": 31,
       "example": "My best regards Lynn Docherty (I think my name in Russian would be spelled as Линн Догерти?"
+    },
+    {
+      "count": 30,
+      "example": "Would you like to explore options that would make it easier for your family members to relocate to Russia at a later stage, if they decide to do so?"
+    },
+    {
+      "count": 30,
+      "example": "Belobragin?"
     },
     {
       "count": 30,
@@ -278,95 +367,43 @@
     {
       "count": 28,
       "example": "So to end, my questions are, ~does a health tour allow opportunity to look at investment and living opportunities?"
-    },
-    {
-      "count": 28,
-      "example": "Or is the “temporary visa” needed ?"
-    },
-    {
-      "count": 28,
-      "example": "And average dinner costs?"
-    },
-    {
-      "count": 28,
-      "example": "~With the threat of war, are there precautions I should be considering?"
-    },
-    {
-      "count": 28,
-      "example": "Have I provided needed information that allows this?"
-    },
-    {
-      "count": 27,
-      "example": "Belobragin?"
-    },
-    {
-      "count": 27,
-      "example": "Regarding the onboarding call, would it be convenient to schedule it on Thursday or Friday next week ?"
-    },
-    {
-      "count": 27,
-      "example": "Does a health tour allow opportunities to explore investment and living options, or is a “temporary visa” required?"
-    },
-    {
-      "count": 27,
-      "example": "And the average cost of dinner?"
-    },
-    {
-      "count": 27,
-      "example": "With the threat of war, are there precautions I should consider?"
-    },
-    {
-      "count": 27,
-      "example": "What timeline works best for you?"
-    },
-    {
-      "count": 27,
-      "example": "When would you and your daughter like to visit Russia for the health tour?"
-    },
-    {
-      "count": 27,
-      "example": "Recovery: Dissolvable stitches are available – does the surgeon offer a “no-scarring” approach?"
-    },
-    {
-      "count": 27,
-      "example": "What about the biopsy and any other things that need to be performed?"
-    },
-    {
-      "count": 27,
-      "example": "What is your success rate in removing parotid gland tumors without causing facial paralysis?"
-    },
-    {
-      "count": 27,
-      "example": "Are antibiotics used during the surgery, and if so, what are they called so I can research them?"
-    },
-    {
-      "count": 27,
-      "example": "What is the timeline from the CT scan to the surgery?"
-    },
-    {
-      "count": 27,
-      "example": "Timeline: How many days does it take from the first visit to the surgery?"
     }
   ],
   "booking_phrases": [
+    [
+      "I completely understand how busy things can get, so please let me know if there’s a more convenient time to reconnect or if there’s any additional information I can provide to assist your decision-making process.",
+      149
+    ],
+    [
+      "Please let us know your availability, along with your time zone.",
+      107
+    ],
     [
       "If this service interests you, please feel free to contact us, and we can schedule a brief call to answer any questions you may have.",
       73
     ],
     [
-      "We would be happy to arrange a call with our General Managing Partner, Mr.",
-      62
+      "After the agreement is fully executed by both parties and the retainer is funded, we will schedule an onboarding call to begin the process.",
+      54
     ],
     [
       "If you are interested in learning more about our Golden Visa process, let’s schedule a call at your convenience.",
       52
     ],
     [
+      "When the agreement is signed from both side and the retainer is funded, we will do an onboarding call with you to initiate the process.",
+      47
+    ],
+    [
       "It was a pleasure to meet you during our onboarding call on Friday.",
       47
     ],
     [
-      "I completely understand how busy things can get, so please let me know if there’s a more convenient time to reconnect or if there’s any additional information I can provide to assist your decision-making process.",
+      "After the agreement is fully executed by both parties and the retainer is funded (wire instructions for the first of the 3 monthly instalments is attached), we will schedule an onboarding call to begin the process.",
+      41
+    ],
+    [
+      "Once received, we’ll countersign and guide you through the next steps, including the retainer payment and onboarding call.",
       36
     ],
     [
@@ -374,75 +411,31 @@
       33
     ],
     [
+      "When the agreement is signed from both side and the retainer is funded, we will schedule an onboarding call at your convenience to officially kick off the process.",
+      33
+    ],
+    [
       "When the agreement is signed from both sides and the initial retainer is funded, we will do an onboarding call with you to initiate the process.",
       32
-    ],
-    [
-      "If we complete the above steps this week, we can set up an onboarding call as early as next week .",
-      31
-    ],
-    [
-      "After the agreement is fully executed by both parties and the retainer is funded, we will schedule an onboarding call to begin the process.",
-      26
     ],
     [
       "Watanabe, Thank you for your time on the onboarding call today!",
       26
     ],
     [
-      "If the above sounds like a good plan, I will go ahead and draft the agreements, send you the payment details, and we can schedule your onboarding call.",
-      25
-    ],
-    [
-      "After the agreement is fully executed by both parties and the retainer is funded (the payment details are attached), we will schedule an onboarding call to begin the process.",
-      25
-    ],
-    [
-      "Is Sunday still good for the onboarding call?",
-      25
-    ],
-    [
-      "As a next step, may I suggest we schedule a call?",
+      "Additionally, whenever you’re ready, kindly let me know a convenient time to proceed with the remaining retainer.",
       24
     ],
     [
-      "Once we receive the signed contract and payment, we will schedule your onboarding call (with a Spanish translator present) and begin the process immediately.",
-      24
+      "Please let us know your availability next week, along with your time zone.",
+      20
     ],
     [
-      "I'd like to set up a call to see what beginning the process will be like and most likely start the process.",
-      23
-    ],
-    [
-      "I´ve put down the time preliminary for Sunday for the onboarding call at the same time as last Sunday.",
-      23
-    ],
-    [
-      "For the onboarding call, what is a good time for you next week?",
-      22
-    ],
-    [
-      "Shall we schedule the onboarding call for the second week of April?",
-      21
-    ],
-    [
-      "During the onboarding call above, we will also disclose the brokerages we propose to use for the financial infrastructure and answer any other questions you may have.",
-      21
-    ],
-    [
-      "When the agreement is signed from both side and the initial payment is done (we can agree on instalment payment of half of the retainer first) we will do an onboarding call with you to initiate the process.",
-      21
-    ],
-    [
-      "If we complete the above steps this week, we can set up an onboarding call.",
-      21
+      "Bank transfer is also an available option; if a reference is required, you can use \"Contract reference SV292LB.\" - Once the first instalment is received, we will schedule an onboarding call for you.",
+      20
     ],
     [
       "Luoranen, Thank you for your time today on the onboarding call.",
-      19
-    ],
-    [
-      "Diaz Lopez, Would you be available for a call at 14:00 CEST ( UTC +2 ) on Tuesday the 15th of July?",
       19
     ],
     [
@@ -450,24 +443,52 @@
       19
     ],
     [
-      "Once all the above steps are completed, we will book an onboarding call and start the process right away.",
-      18
-    ],
-    [
-      "We look forward to the onboarding call on Friday.",
-      18
-    ],
-    [
       "If you are interested, please let us know what time works best for you and provide us with your time zone.",
       18
     ],
     [
-      "We are looking forward towards the onboarding call on Monday.",
+      "At the onboarding call, you will have the opportunity to ask more question of course.",
       18
     ],
     [
-      "Diaz Lopez, We look forward to the onboarding call with you in 45 minutes.",
+      "Sejrková, Thank you for your time on the onboarding call!",
       18
+    ],
+    [
+      "Let us know your availability for next week, and we’ll find a convenient time to connect.",
+      18
+    ],
+    [
+      "Powell, Thank you for agreeing to schedule a call.",
+      18
+    ],
+    [
+      "To discuss your situation further, we would like to offer you a brief call with our General Managing Partner, Mr.",
+      17
+    ],
+    [
+      "If you are open to it, please let us know your time zone and we'll follow up with available time slots.",
+      17
+    ],
+    [
+      "When the agreement is signed from both side and the retainer is funded (we will follow up with the payment instructions for the wire), we will do an onboarding call with you to initiate the process.",
+      17
+    ],
+    [
+      "Would you be available for a brief call sometime next week?",
+      16
+    ],
+    [
+      "Tuesday, the 17th of March, works perfectly for the onboarding call.",
+      16
+    ],
+    [
+      "I will be available on Tuesday, the 17th of March for the onboarding call.",
+      16
+    ],
+    [
+      "Please let me know a convenient time for you, and I’ll be happy to accommodate your schedule.",
+      16
     ]
   ]
 }

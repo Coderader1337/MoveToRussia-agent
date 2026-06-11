@@ -1,12 +1,13 @@
 """
 IMAP Yandex: первое исходящее письмо менеджера клиенту (read-only).
 
-Ищет в ящиках e.novik и a.antonova (или legacy MAIL_ADRESS), папка Sent.
+Ищет в ящиках e.novik, a.antonova, n.perry (или legacy MAIL_ADRESS), папка Sent.
 Берёт самое раннее по дате письмо «от менеджера → клиенту».
 
 .env:
   E_NOVIK_MAIL_ADRESS, E_NOVIK_MAIL_KEY
   A_ANTONOVA_MAIL_ADRESS, A_ANTONOVA_MAIL_KEY
+  N_PERRY_MAIL_ADRESS, N_PERRY_MAIL_KEY
   IMAP_SENT_MAILBOX — опционально (по умолчанию Sent)
 """
 
@@ -27,6 +28,7 @@ IMAP_PORT = 993
 _MANAGER_MAILBOX_ENV = (
     ("E_NOVIK_MAIL_ADRESS", "E_NOVIK_MAIL_KEY"),
     ("A_ANTONOVA_MAIL_ADRESS", "A_ANTONOVA_MAIL_KEY"),
+    ("N_PERRY_MAIL_ADRESS", "N_PERRY_MAIL_KEY"),
 )
 
 
@@ -303,8 +305,9 @@ def fetch_first_manager_email_to_client(client_email: str) -> str:
     mailboxes = configured_manager_mailboxes()
     if not mailboxes:
         raise RuntimeError(
-            "Нужны E_NOVIK_MAIL_ADRESS/E_NOVIK_MAIL_KEY и/или "
-            "A_ANTONOVA_MAIL_ADRESS/A_ANTONOVA_MAIL_KEY в .env"
+            "Нужны E_NOVIK_MAIL_ADRESS/E_NOVIK_MAIL_KEY, "
+            "A_ANTONOVA_MAIL_ADRESS/A_ANTONOVA_MAIL_KEY и/или "
+            "N_PERRY_MAIL_ADRESS/N_PERRY_MAIL_KEY в .env"
         )
 
     sent_mailbox = _env("IMAP_SENT_MAILBOX") or "Sent"

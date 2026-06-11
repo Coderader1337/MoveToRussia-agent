@@ -1,7 +1,7 @@
 """
 Массовая выгрузка переписок менеджеров с клиентами (read-only IMAP, Yandex).
 
-Берёт из ящиков e.novik и a.antonova:
+Берёт из ящиков e.novik, a.antonova и n.perry:
   * ВСЕ исходящие письма (папка Sent / Отправленные);
   * ВСЕ прочитанные (\\Seen) входящие письма (INBOX).
 
@@ -9,7 +9,8 @@
 сортируются хронологически и складываются в отдельную папку mailbox_export/:
   threads/<client>.txt   — единая хронологическая переписка по клиенту
   all_messages.jsonl     — все письма построчным JSON (вход для анализа)
-  index.csv              — сводка по клиентам
+  index.csv              — сводка по клиентам (строки)
+  client_message_stats.csv — email клиентов в столбцах, под ними число писем (↓)
   summary.json           — общая статистика выгрузки
 
 Только чтение: EXAMINE (readonly=True) + BODY.PEEK[] (не ставит \\Seen).
@@ -17,6 +18,7 @@
 .env:
   E_NOVIK_MAIL_ADRESS, E_NOVIK_MAIL_KEY
   A_ANTONOVA_MAIL_ADRESS, A_ANTONOVA_MAIL_KEY
+  N_PERRY_MAIL_ADRESS, N_PERRY_MAIL_KEY
   IMAP_SENT_MAILBOX — опционально (имя папки исходящих, если не Sent)
 
 Примеры:
@@ -360,6 +362,23 @@ def write_thread_file(client: str, msgs: list[dict[str, Any]]) -> Path:
     return path
 
 
+def write_client_stats_wide_csv(
+    index_rows: list[dict[str, Any]], path: Path
+) -> None:
+    """
+    Широкий CSV: строка 1 — email клиентов, строка 2 — число писем.
+    Слева направо по убыванию количества писем.
+    """
+    sorted_rows = sorted(index_rows, key=lambda r: int(r["messages"]), reverse=True)
+    emails = [str(r["client"]) for r in sorted_rows]
+    counts = [str(r["messages"]) for r in sorted_rows]
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8-sig", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(emails)
+        writer.writerow(counts)
+
+
 def write_outputs(messages: list[dict[str, Any]]) -> dict[str, Any]:
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -418,6 +437,8 @@ def write_outputs(messages: list[dict[str, Any]]) -> dict[str, Any]:
         writer.writeheader()
         writer.writerows(index_rows)
 
+    write_client_stats_wide_csv(index_rows, OUTPUT_DIR / "client_message_stats.csv")
+
     summary = {
         "total_messages": len(messages),
         "total_clients": len(by_client),
@@ -456,8 +477,9 @@ def main() -> int:
     mailboxes = configured_manager_mailboxes()
     if not mailboxes:
         print(
-            "Нужны E_NOVIK_MAIL_ADRESS/E_NOVIK_MAIL_KEY и/или "
-            "A_ANTONOVA_MAIL_ADRESS/A_ANTONOVA_MAIL_KEY в .env",
+            "Нужны E_NOVIK_MAIL_ADRESS/E_NOVIK_MAIL_KEY, "
+            "A_ANTONOVA_MAIL_ADRESS/A_ANTONOVA_MAIL_KEY и/или "
+            "N_PERRY_MAIL_ADRESS/N_PERRY_MAIL_KEY в .env",
             file=sys.stderr,
         )
         return 1
