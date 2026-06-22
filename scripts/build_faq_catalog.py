@@ -14,14 +14,15 @@
        knowledge_base/v4/client_faq_review.csv         — отфильтрованный список для разметки заказчиком
        knowledge_base/v4/client_faq_polished.csv         — после --llm (частые, отполированные)
        knowledge_base/v4/faq_build_stats.json
-       knowledge_base/v4/_faq_intermediate/      — кэш шагов
+       knowledge_base/v4/_faq_intermediate/      — кэш шагов (переводы, пары, кластеры)
 
 Шаги:
-  1) extract + cluster + csv  — быстро, без API
+  1) extract + translate + theme cluster + csv  — translate кэшируется
   2) --llm                    — полировка формулировок и ответов через DeepSeek
 
 Примеры:
   python build_faq_catalog.py --force
+  python build_faq_catalog.py --force --skip-translate   # без API, только EN-вопросы
   python build_faq_catalog.py --llm --force
   python build_faq_catalog.py --min-frequency 3
 """
@@ -63,6 +64,7 @@ KB_V4 = ROOT / "knowledge_base" / "v4"
 INTERMEDIATE = KB_V4 / "_faq_intermediate"
 QA_PAIRS_PATH = INTERMEDIATE / "qa_pairs.jsonl"
 CLUSTERS_PATH = INTERMEDIATE / "clusters.json"
+TRANSLATIONS_PATH = INTERMEDIATE / "translations.json"
 STATS_PATH = KB_V4 / "faq_build_stats.json"
 CSV_PATH = KB_V4 / "client_faq.csv"
 CSV_FREQUENT_PATH = KB_V4 / "client_faq_frequent.csv"
@@ -89,6 +91,63 @@ QUESTION_START = re.compile(
     r"will|have|has|should|may|might|if|am i|are we|is it|is there|any)\b",
     re.I,
 )
+FOREIGN_QUESTION_START = re.compile(
+    r"^(?:"
+    r"как|можно|можете|могу|что|где|когда|почему|сколько|есть ли|нужно ли|"
+    r"wie|was|können|kann|warum|wann|wo|gibt es|"
+    r"comment|combien|pourquoi|est-ce|puis-je|peut-on"
+    r")\b",
+    re.I,
+)
+QUESTION_NOISE = re.compile(
+    r"(?:yesapart|222-65-95|\[cid:|@\w+\.(?:com|ru)|movetorussia\.com|"
+    r"kind regards|client relationship manager)",
+    re.I,
+)
+THEME_RULES: list[tuple[str, str, re.Pattern[str]]] = [
+    ("bank_transfer", "Bank transfer / wire / brokerage",
+     re.compile(r"wire|transfer|iban|sirius|aktina|broker|payment|fund|tranche|swift", re.I)),
+    ("trp_process", "TRP / Shared Values / residence permit",
+     re.compile(r"trp|temporary residence|shared values|rvp|vnj|migration|residence permit", re.I)),
+    ("golden_visa", "Golden Visa / investment",
+     re.compile(r"golden visa|30 million|investment|gazprom|sberbank|stock|brokerage account", re.I)),
+    ("documents", "Documents / apostille / FBI / passport",
+     re.compile(r"apostille|fbi|passport|police clearance|certificate|notary|scan", re.I)),
+    ("cost_pricing", "Service cost / pricing / retainer",
+     re.compile(r"\b(?:cost|price|fee|retainer|how much|pricing)\b|white gloves", re.I)),
+    ("hotel_registration", "Hotel / registration / accommodation",
+     re.compile(r"hotel|registration|accommodation|rent|apartment|booking", re.I)),
+    ("visa_entry", "Entry visa / tourist visa / e-visa",
+     re.compile(r"tourist visa|e-?visa|entry visa|16.?day|multi.?entry", re.I)),
+    ("family", "Family / spouse / children",
+     re.compile(r"family|spouse|children|wife|husband|brother|sibling|kin", re.I)),
+    ("timeline", "Timeline / processing time",
+     re.compile(r"how long|timeline|processing time|months|weeks|when can|how many days", re.I)),
+    ("language_test", "Russian language test",
+     re.compile(r"language test|russian language|language exam", re.I)),
+    ("contract", "Contract / agreement",
+     re.compile(r"contract|agreement|appendix|section \d|item \d", re.I)),
+    ("citizenship", "Citizenship / military",
+     re.compile(r"citizenship|military service|nationality", re.I)),
+    ("work_sim", "Work / SIM / bank account setup",
+     re.compile(r"\b(?:work|job|employment|sim card|bank account)\b", re.I)),
+    ("tax", "Tax / dividends",
+     re.compile(r"tax|withholding|dividend|capital gain", re.I)),
+    ("medical", "Medical / health",
+     re.compile(r"medical|health|surgery|clinic|insurance|biopsy", re.I)),
+    ("driver_license", "Driver's license",
+     re.compile(r"driver.?s license|driving license", re.I)),
+]
+TRANSLATE_SYSTEM = (
+    "You translate client FAQ questions into clear English for MoveToRussia.com. "
+    "Preserve meaning, visa terms (TRP, Golden Visa, Shared Values), amounts and names. "
+    "Return ONLY a JSON array: [{\"id\": <number>, \"english\": \"...\"}]"
+)
+TRANSLATE_BATCH_TEMPLATE = """Translate each question to English.
+
+Questions:
+{batch}
+"""
 NOISE_QUESTION = re.compile(
     r"^(?:could you please correct|is that correct\??|is the accurate\??|"
     r"correct\??|dear |thank you|thanks |hi |hello |have a (?:wonderful|great|nice) |"
@@ -275,6 +334,9 @@ class QAPair:
     client: str
     signature: frozenset[str]
     answer_score: float = 0.0
+    question_original: str = ""
+    language: str = "en"
+    theme: str = "other"
 
 
 @dataclass
@@ -287,6 +349,9 @@ class Cluster:
     best_answer: str = ""
     best_answer_score: float = 0.0
     question_variants: list[str] = field(default_factory=list)
+    theme: str = "other"
+    theme_label: str = "Other"
+    languages: list[str] = field(default_factory=list)
 
 
 def _trim_reply_chain(text: str) -> str:
@@ -320,6 +385,137 @@ def _content_words(text: str) -> frozenset[str]:
     return frozenset(w for w in words if w not in STOPWORDS)
 
 
+def _detect_language(text: str) -> str:
+    t = text.strip()
+    if not t:
+        return "en"
+    cyr = len(re.findall(r"[а-яА-ЯёЁ]{3,}", t))
+    lat = len(re.findall(r"[a-zA-Z']{3,}", t))
+    if cyr >= 3 and cyr >= lat * 0.4:
+        return "ru"
+    if re.search(r"[äöüßÄÖÜ]", t) or re.search(
+        r"\b(?:wie|was|können|kann|warum|wann|über|für|und der|ich habe)\b", t, re.I
+    ):
+        return "de"
+    if re.search(r"[àâçéèêëïîôùûü]", t) or re.search(
+        r"\b(?:bonjour|merci|comment|combien|pourquoi|est-ce)\b", t, re.I
+    ):
+        return "fr"
+    return "en"
+
+
+def _assign_theme(text: str) -> tuple[str, str]:
+    best_id = "other"
+    best_label = "Other"
+    best_hits = 0
+    for theme_id, label, pattern in THEME_RULES:
+        hits = len(pattern.findall(text))
+        if hits > best_hits:
+            best_hits = hits
+            best_id = theme_id
+            best_label = label
+    return best_id, best_label
+
+
+def _clustering_words(text: str) -> frozenset[str]:
+    """Слова для группировки: без общих visa/russia/permit."""
+    distinctive = _distinctive_words(text)
+    if len(distinctive) >= 3:
+        return distinctive
+    extra = _content_words(text) - GENERIC_TOPIC_WORDS - STOPWORDS
+    return distinctive | extra
+
+
+def _load_translation_cache() -> dict[str, str]:
+    if not TRANSLATIONS_PATH.is_file():
+        return {}
+    return json.loads(TRANSLATIONS_PATH.read_text(encoding="utf-8"))
+
+
+def _save_translation_cache(cache: dict[str, str]) -> None:
+    INTERMEDIATE.mkdir(parents=True, exist_ok=True)
+    TRANSLATIONS_PATH.write_text(
+        json.dumps(cache, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+
+
+def _parse_llm_json_array(raw: str) -> list[dict[str, Any]]:
+    raw = raw.strip()
+    if raw.startswith("```"):
+        raw = re.sub(r"^```(?:json)?\s*", "", raw)
+        raw = re.sub(r"\s*```$", "", raw)
+    return json.loads(raw)
+
+
+def translate_questions(
+    items: list[tuple[int, str, str]],
+    *,
+    temperature: float,
+    batch_size: int = 15,
+) -> dict[str, str]:
+    """Перевести не-EN вопросы. Ключ кэша: lang + original text."""
+    cache = _load_translation_cache()
+    pending = [(i, lang, q) for i, lang, q in items if lang != "en"]
+    if not pending:
+        return cache
+
+    total_batches = (len(pending) + batch_size - 1) // batch_size
+    for bi, start in enumerate(range(0, len(pending), batch_size), start=1):
+        batch = pending[start : start + batch_size]
+        to_translate: list[tuple[int, str, str]] = []
+        for i, lang, q in batch:
+            key = f"{lang}\n{q}"
+            if key not in cache:
+                to_translate.append((i, lang, q))
+        if not to_translate:
+            continue
+        lines = [f"ID {i} [{lang}]: {q}" for i, lang, q in to_translate]
+        user = TRANSLATE_BATCH_TEMPLATE.format(batch="\n".join(lines))
+        print(f"  Translate batch {bi}/{total_batches} ({len(to_translate)} вопросов)…")
+        try:
+            results = _parse_llm_json_array(
+                call_deepseek(TRANSLATE_SYSTEM, user, temperature=temperature)
+            )
+        except Exception as exc:
+            print(f"    ошибка перевода: {exc}", file=sys.stderr)
+            continue
+        by_id = {int(r["id"]): r.get("english", "").strip() for r in results if "id" in r}
+        for i, lang, q in to_translate:
+            en = by_id.get(i) or q
+            cache[f"{lang}\n{q}"] = en
+        _save_translation_cache(cache)
+        time.sleep(0.5)
+    return cache
+
+
+def normalize_questions(
+    pairs: list[QAPair],
+    *,
+    translate: bool,
+    temperature: float,
+    batch_size: int,
+) -> None:
+    """Заполнить question (EN), question_original, language, theme."""
+    for p in pairs:
+        p.question_original = p.question_original or p.question
+        p.language = _detect_language(p.question_original)
+    if translate:
+        items = [(i, p.language, p.question_original) for i, p in enumerate(pairs)]
+        cache = translate_questions(items, temperature=temperature, batch_size=batch_size)
+    else:
+        cache = _load_translation_cache()
+
+    for p in pairs:
+        if p.language == "en":
+            p.question = p.question_original
+        else:
+            key = f"{p.language}\n{p.question_original}"
+            p.question = cache.get(key, p.question_original)
+        theme_id, _ = _assign_theme(p.question)
+        p.theme = theme_id
+        p.signature = _clustering_words(p.question)
+
+
 def _question_signature(q: str) -> frozenset[str]:
     words = re.findall(r"[a-zA-Z']{3,}", q.lower())
     sig = [w for w in words if w not in STOPWORDS]
@@ -328,7 +524,8 @@ def _question_signature(q: str) -> frozenset[str]:
 
 def _content_word_count(s: str) -> int:
     words = re.findall(r"[a-zA-Z']{3,}", s.lower())
-    return len([w for w in words if w not in STOPWORDS])
+    cyr = re.findall(r"[а-яА-ЯёЁ]{3,}", s)
+    return len([w for w in words if w not in STOPWORDS]) + len(cyr)
 
 
 def _topic_word_hits(text: str) -> int:
@@ -438,6 +635,8 @@ def _looks_like_question(s: str) -> bool:
     s = s.strip()
     if len(s) < 20 or len(s) > 420:
         return False
+    if QUESTION_NOISE.search(s):
+        return False
     if re.match(r"https?://", s):
         return False
     if re.match(r"^Hello,\s", s, re.I):
@@ -454,6 +653,8 @@ def _looks_like_question(s: str) -> bool:
         return False
     if re.search(r"\bdo i need to do anything else\b", s, re.I):
         return False
+    if CLIENT_NAME_PREFIX.search(s):
+        return False
     if MANAGER_ASKS_CLIENT.search(s):
         return False
     if NOISE_QUESTION.search(s):
@@ -468,9 +669,9 @@ def _looks_like_question(s: str) -> bool:
         return False
     if EMAIL_HEADER_FRAGMENT.search(s) and len(s) > 120:
         return False
-    if _content_word_count(s) < 5:
-        return False
     if not s.endswith("?"):
+        return False
+    if _content_word_count(s) < 5:
         return False
     if _question_quality_score(s) < 4.0:
         return False
@@ -655,15 +856,16 @@ def extract_qa_pairs(
                 answer = _pick_reply_text(thread, idx, q)
                 if not answer:
                     continue
-                sig = _question_signature(q)
-                if len(sig) < 2:
+                if len(_question_signature(q)) < 2:
                     continue
                 pair = QAPair(
                     question=q,
                     answer=answer,
                     client=client,
-                    signature=sig,
+                    signature=_question_signature(q),
                     answer_score=_combined_qa_score(q, answer, _score_answer(answer, q, extracted=answer)),
+                    question_original=q,
+                    language=_detect_language(q),
                 )
                 pairs.append(pair)
     return pairs
@@ -688,6 +890,178 @@ def _should_merge(a: frozenset[str], b: frozenset[str], threshold: float) -> boo
     return False
 
 
+def _representative_question_score(q: str) -> float:
+    score = _question_quality_score(q)
+    n = len(q)
+    if n > 160:
+        score -= (n - 160) / 15.0
+    if n > 280:
+        score -= 15.0
+    return score
+
+
+def _cluster_cohesion(group: list[QAPair]) -> float:
+    if len(group) < 2:
+        return 1.0
+    words = [p.signature or _clustering_words(p.question) for p in group]
+    scores: list[float] = []
+    for i in range(len(words)):
+        for j in range(i + 1, len(words)):
+            scores.append(_jaccard(words[i], words[j]))
+    return sum(scores) / len(scores) if scores else 0.0
+
+
+def _split_oversized_cluster(c: Cluster, *, max_size: int = 8, min_cohesion: float = 0.28) -> list[Cluster]:
+    if c.frequency <= max_size or _cluster_cohesion(c.pairs) >= min_cohesion:
+        return [c]
+    # Разбить по sub-theme: theme + 2 главных distinctive слова rep question
+    subgroups: dict[str, list[QAPair]] = defaultdict(list)
+    for p in c.pairs:
+        dw = sorted(_distinctive_words(p.question))[:2]
+        key = c.theme + ":" + "|".join(dw) if dw else c.theme + ":misc"
+        subgroups[key].append(p)
+    if len(subgroups) <= 1:
+        return [c]
+    out: list[Cluster] = []
+    for group in subgroups.values():
+        if not group:
+            continue
+        q_counter = Counter(p.question for p in group)
+        rep_q = max(q_counter.keys(), key=_representative_question_score)
+        theme_id, theme_label = _assign_theme(rep_q)
+        best = max(
+            group,
+            key=lambda p: (_answer_relevance(rep_q, p.answer), p.answer_score, len(p.answer)),
+        )
+        out.append(
+            Cluster(
+                cluster_id=0,
+                frequency=len(group),
+                representative_question=rep_q,
+                signature=frozenset(),
+                pairs=group,
+                best_answer=best.answer,
+                best_answer_score=best.answer_score,
+                question_variants=sorted(set(q_counter.keys()), key=_representative_question_score, reverse=True)[:8],
+                theme=theme_id,
+                theme_label=theme_label,
+                languages=sorted({p.language for p in group if p.language}),
+            )
+        )
+    return out if len(out) > 1 else [c]
+
+
+def split_oversized_clusters(clusters: list[Cluster]) -> list[Cluster]:
+    out: list[Cluster] = []
+    for c in clusters:
+        out.extend(_split_oversized_cluster(c))
+    for i, c in enumerate(out, start=1):
+        c.cluster_id = i
+    return out
+
+
+def _pair_similarity(a: QAPair, b: QAPair, threshold: float) -> bool:
+    wa = a.signature or _clustering_words(a.question)
+    wb = b.signature or _clustering_words(b.question)
+    j = _jaccard(wa, wb)
+    if j >= max(threshold, 0.38):
+        return True
+    if a.theme == b.theme and a.theme != "other" and j >= 0.32:
+        da = _distinctive_words(a.question)
+        db = _distinctive_words(b.question)
+        if len(da & db) >= 3:
+            return True
+    inter = len(wa & wb)
+    if inter >= 5 and inter / min(len(wa), len(wb), 1) >= 0.48:
+        return True
+    return False
+
+
+def _should_merge_clusters(a: Cluster, b: Cluster, threshold: float) -> bool:
+    wa = _clustering_words(a.representative_question)
+    wb = _clustering_words(b.representative_question)
+    j = _jaccard(wa, wb)
+    if j >= max(threshold, 0.42):
+        return True
+    if a.theme == b.theme and a.theme != "other" and j >= 0.34:
+        da = _distinctive_words(a.representative_question)
+        db = _distinctive_words(b.representative_question)
+        if len(da & db) >= 3:
+            return True
+    return False
+
+
+def _merge_cluster_group(a: Cluster, b: Cluster) -> Cluster:
+    pairs = a.pairs + b.pairs
+    q_counter = Counter(p.question for p in pairs)
+    rep_q = max(q_counter.keys(), key=_representative_question_score)
+    theme_id, theme_label = _assign_theme(rep_q)
+    if a.frequency >= b.frequency and a.theme != "other":
+        theme_id, theme_label = a.theme, a.theme_label
+    elif b.theme != "other":
+        theme_id, theme_label = b.theme, b.theme_label
+    best = max(
+        pairs,
+        key=lambda p: (_answer_relevance(rep_q, p.answer), p.answer_score, len(p.answer)),
+    )
+    variants = sorted(set(q_counter.keys()), key=_question_quality_score, reverse=True)[:8]
+    langs = sorted({p.language for p in pairs if p.language})
+    sig: frozenset[str] = frozenset()
+    for p in pairs:
+        sig = sig | (p.signature or _clustering_words(p.question))
+    return Cluster(
+        cluster_id=a.cluster_id,
+        frequency=len(pairs),
+        representative_question=rep_q,
+        signature=sig,
+        pairs=pairs,
+        best_answer=best.answer,
+        best_answer_score=best.answer_score,
+        question_variants=variants,
+        theme=theme_id,
+        theme_label=theme_label,
+        languages=langs,
+    )
+
+
+def merge_similar_clusters(clusters: list[Cluster], *, threshold: float) -> list[Cluster]:
+    if not clusters:
+        return clusters
+    parent = list(range(len(clusters)))
+
+    def find(x: int) -> int:
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    def union(a: int, b: int) -> None:
+        ra, rb = find(a), find(b)
+        if ra != rb:
+            parent[rb] = ra
+
+    for i in range(len(clusters)):
+        for j in range(i + 1, len(clusters)):
+            if _should_merge_clusters(clusters[i], clusters[j], threshold):
+                union(i, j)
+
+    groups: dict[int, list[Cluster]] = defaultdict(list)
+    for i, c in enumerate(clusters):
+        groups[find(i)].append(c)
+
+    merged: list[Cluster] = []
+    for group in groups.values():
+        root = group[0]
+        for other in group[1:]:
+            root = _merge_cluster_group(root, other)
+        merged.append(root)
+
+    merged.sort(key=lambda c: (-c.frequency, -c.best_answer_score, c.representative_question))
+    for i, c in enumerate(merged, start=1):
+        c.cluster_id = i
+    return merged
+
+
 def cluster_pairs(pairs: list[QAPair], *, threshold: float) -> list[Cluster]:
     n = len(pairs)
     parent = list(range(n))
@@ -705,7 +1079,7 @@ def cluster_pairs(pairs: list[QAPair], *, threshold: float) -> list[Cluster]:
 
     for i in range(n):
         for j in range(i + 1, n):
-            if _should_merge(pairs[i].signature, pairs[j].signature, threshold):
+            if _pair_similarity(pairs[i], pairs[j], threshold):
                 union(i, j)
 
     groups: dict[int, list[QAPair]] = defaultdict(list)
@@ -715,16 +1089,25 @@ def cluster_pairs(pairs: list[QAPair], *, threshold: float) -> list[Cluster]:
     clusters: list[Cluster] = []
     for cid, (root, group) in enumerate(sorted(groups.items(), key=lambda kv: -len(kv[1])), start=1):
         q_counter = Counter(p.question for p in group)
-        rep_q = max(q_counter.keys(), key=_question_quality_score)
+        rep_q = max(q_counter.keys(), key=_representative_question_score)
+        theme_id, theme_label = _assign_theme(rep_q)
+        themes_in_group = [p.theme for p in group if p.theme != "other"]
+        if themes_in_group:
+            theme_counts = Counter(themes_in_group)
+            theme_id = theme_counts.most_common(1)[0][0]
+            theme_label = next(l for tid, l, _ in THEME_RULES if tid == theme_id)
         sig = frozenset()
         for p in group:
-            sig = sig | p.signature
+            sig = sig | (p.signature or _clustering_words(p.question))
         best = max(
             group,
             key=lambda p: (_answer_relevance(rep_q, p.answer), p.answer_score, len(p.answer)),
         )
-        variants = sorted(q_counter.keys(), key=_question_quality_score, reverse=True)[:5]
-        best_answer = best.answer
+        variants = sorted(set(q_counter.keys()), key=_representative_question_score, reverse=True)[:8]
+        orig_variants = sorted({p.question_original for p in group if p.question_original}, key=len)[:5]
+        if orig_variants and rep_q not in orig_variants:
+            variants = variants  # keep EN variants primary
+        langs = sorted({p.language for p in group if p.language})
         clusters.append(
             Cluster(
                 cluster_id=cid,
@@ -732,16 +1115,19 @@ def cluster_pairs(pairs: list[QAPair], *, threshold: float) -> list[Cluster]:
                 representative_question=rep_q,
                 signature=sig,
                 pairs=group,
-                best_answer=best_answer,
+                best_answer=best.answer,
                 best_answer_score=best.answer_score,
                 question_variants=variants,
+                theme=theme_id,
+                theme_label=theme_label,
+                languages=langs,
             )
         )
 
     clusters.sort(key=lambda c: (-c.frequency, -c.best_answer_score, c.representative_question))
     for i, c in enumerate(clusters, start=1):
         c.cluster_id = i
-    return clusters
+    return merge_similar_clusters(split_oversized_clusters(clusters), threshold=threshold)
 
 
 def filter_clusters(clusters: list[Cluster], *, min_answer_score: float) -> list[Cluster]:
@@ -785,13 +1171,24 @@ def write_csv(clusters: list[Cluster], path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8-sig", newline="") as f:
         w = csv.writer(f, delimiter=";", quoting=csv.QUOTE_MINIMAL)
-        w.writerow(["number", "question", "frequency", "answer"])
+        w.writerow([
+            "number", "theme", "theme_label", "frequency", "languages",
+            "question", "question_original", "answer", "variants",
+        ])
         for i, c in enumerate(clusters, start=1):
+            variants = " | ".join(c.question_variants[:5])
+            originals = sorted({p.question_original for p in c.pairs if p.question_original})
+            orig_display = " | ".join(o for o in originals if o != c.representative_question)[:800]
             w.writerow([
                 i,
-                c.representative_question,
+                c.theme,
+                c.theme_label,
                 c.frequency,
+                ", ".join(c.languages) if c.languages else "en",
+                c.representative_question,
+                orig_display,
                 c.best_answer,
+                variants,
             ])
 
 
@@ -820,6 +1217,9 @@ def save_intermediate(pairs: list[QAPair], clusters: list[Cluster]) -> None:
                 json.dumps(
                     {
                         "question": p.question,
+                        "question_original": p.question_original,
+                        "language": p.language,
+                        "theme": p.theme,
                         "answer": p.answer,
                         "client": p.client,
                         "signature": sorted(p.signature),
@@ -833,6 +1233,9 @@ def save_intermediate(pairs: list[QAPair], clusters: list[Cluster]) -> None:
         {
             "cluster_id": c.cluster_id,
             "frequency": c.frequency,
+            "theme": c.theme,
+            "theme_label": c.theme_label,
+            "languages": c.languages,
             "representative_question": c.representative_question,
             "question_variants": c.question_variants,
             "best_answer": c.best_answer,
@@ -858,6 +1261,9 @@ def load_clusters_from_cache() -> list[Cluster]:
                 best_answer=row["best_answer"],
                 best_answer_score=row["best_answer_score"],
                 question_variants=row.get("question_variants", []),
+                theme=row.get("theme", "other"),
+                theme_label=row.get("theme_label", "Other"),
+                languages=row.get("languages", []),
             )
         )
     return clusters
@@ -925,6 +1331,9 @@ def _copy_cluster(c: Cluster) -> Cluster:
         best_answer=c.best_answer,
         best_answer_score=c.best_answer_score,
         question_variants=list(c.question_variants),
+        theme=c.theme,
+        theme_label=c.theme_label,
+        languages=list(c.languages),
     )
 
 
@@ -954,6 +1363,7 @@ def write_stats(
         "clusters_rare_quality": clusters_rare,
         "clusters_review": clusters_review,
         "singleton_clusters": sum(1 for c in clusters_out if c.frequency == 1),
+        "unique_themes": len({c.theme for c in clusters_out}),
         "frequency_distribution": dict(sorted(freq_hist.items())),
         "llm_polished": llm_polished,
         "outputs": {
@@ -976,8 +1386,11 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--jsonl", action="store_true",
                    help="Брать письма из mailbox_export/all_messages.jsonl вместо clean")
     p.add_argument("--force", action="store_true", help="Пересобрать extract/cluster без кэша")
-    p.add_argument("--cluster-threshold", type=float, default=0.34,
-                   help="Порог похожести вопросов (Jaccard), по умолчанию 0.34")
+    p.add_argument("--skip-translate", action="store_true",
+                   help="Не переводить не-EN вопросы (быстрый прогон без API)")
+    p.add_argument("--translate-batch-size", type=int, default=15)
+    p.add_argument("--cluster-threshold", type=float, default=0.28,
+                   help="Порог похожести вопросов (Jaccard + тема), по умолчанию 0.28")
     p.add_argument("--min-answer-score", type=float, default=6.0,
                    help="Мин. качество ответа для включения в полный CSV (1×)")
     p.add_argument("--min-frequency", type=int, default=2,
@@ -1016,11 +1429,24 @@ def main() -> int:
         print("Extract: вопросы клиентов + ответы менеджеров…")
         pairs = extract_qa_pairs(threads)
         qa_pairs_count = len(pairs)
-        print(f"  пар Q→A: {qa_pairs_count}")
-        print(f"Cluster: порог {args.cluster_threshold}…")
+        print(f"  пар Q→A (сырые): {qa_pairs_count}")
+        non_en = sum(1 for p in pairs if p.language != "en")
+        print(f"  не-EN вопросов: {non_en}")
+        if not args.skip_translate and non_en:
+            print("Translate: не-EN → EN (DeepSeek, кэш _faq_intermediate/translations.json)…")
+        normalize_questions(
+            pairs,
+            translate=not args.skip_translate,
+            temperature=args.temperature,
+            batch_size=args.translate_batch_size,
+        )
+        print(f"Cluster: темы + порог {args.cluster_threshold}…")
         clusters_all = cluster_pairs(pairs, threshold=args.cluster_threshold)
         clusters = filter_clusters(clusters_all, min_answer_score=args.min_answer_score)
-        print(f"  кластеров всего: {len(clusters_all)} → в CSV: {len(clusters)}")
+        print(
+            f"  кластеров: {len(clusters_all)} → после фильтра: {len(clusters)} | "
+            f"тем: {len({c.theme for c in clusters})}"
+        )
         save_intermediate(pairs, clusters)
 
     write_csv(clusters, CSV_PATH)
