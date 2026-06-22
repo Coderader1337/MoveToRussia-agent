@@ -1,7 +1,8 @@
 """
 Построение базы знаний (RAG) для ИИ-агента MoveToRussia из выгруженных переписок.
 
-Вход:  mailbox_export/all_messages.jsonl  (см. export_manager_mailboxes.py)
+Вход:  mailbox_export_clean/threads/*.txt  (предпочтительно, без вложенных цитат)
+        mailbox_export/all_messages.jsonl    (fallback, см. export_manager_mailboxes.py)
 Выход: knowledge_base/movetorussia_agent_kb.md  — универсальная инструкция-онбординг
        knowledge_base/_intermediate/*.json     — промежуточные извлечения (gitignored)
 
@@ -30,6 +31,7 @@ import sys
 import time
 import urllib.error
 import urllib.request
+from http.client import IncompleteRead
 from collections import Counter, defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from threading import Lock
@@ -48,6 +50,7 @@ for _stream in (sys.stdout, sys.stderr):
 ROOT = Path(__file__).resolve().parent.parent
 EXPORT_DIR = ROOT / "mailbox_export"
 JSONL_PATH = EXPORT_DIR / "all_messages.jsonl"
+CLEAN_THREADS_DIR = ROOT / "mailbox_export_clean" / "threads"
 KB_DIR = ROOT / "knowledge_base"
 INTERMEDIATE_DIR = KB_DIR / "_intermediate"
 KB_PATH = KB_DIR / "movetorussia_agent_kb.md"
@@ -59,10 +62,12 @@ DEEPSEEK_TEMPERATURE = 0.2
 
 # Бюджет символов на один диалог при map-фазе (голова + хвост диалога).
 MAP_THREAD_CHAR_BUDGET = 14_000
+MAP_THREAD_CHAR_BUDGET_MAX = 32_000
 # Сколько диалогов максимум отправлять в LLM (по убыванию объёма).
 DEFAULT_MAX_THREADS = 60
-# Порог объёда для иерархического reduce.
+# Порог объёма для иерархического reduce.
 REDUCE_GROUP_CHAR_BUDGET = 45_000
+REDUCE_GROUP_CHAR_BUDGET_MAX = 100_000
 
 
 # --------------------------------------------------------------------------- #
@@ -94,41 +99,122 @@ def call_deepseek(system_prompt: str, user_prompt: str, *, temperature: float) -
         "temperature": temperature,
     }
     data = json.dumps(payload).encode("utf-8")
-    req = urllib.request.Request(
-        DEEPSEEK_API_URL,
-        data=data,
-        method="POST",
-        headers={
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {api_key}",
-        },
-    )
     last_err: Exception | None = None
-    for attempt in range(3):
+    max_attempts = 5
+    for attempt in range(max_attempts):
+        req = urllib.request.Request(
+            DEEPSEEK_API_URL,
+            data=data,
+            method="POST",
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {api_key}",
+            },
+        )
         try:
-            with urllib.request.urlopen(req, timeout=300) as resp:
+            with urllib.request.urlopen(req, timeout=600) as resp:
                 body = json.loads(resp.read().decode("utf-8"))
             return body["choices"][0]["message"]["content"].strip()
         except urllib.error.HTTPError as e:
             err = e.read().decode("utf-8", errors="replace")
             last_err = RuntimeError(f"DeepSeek HTTP {e.code}: {err[:300]}")
-            if e.code in (429, 500, 502, 503):
-                time.sleep(3 * (attempt + 1))
+            if e.code in (429, 500, 502, 503, 504):
+                time.sleep(5 * (attempt + 1))
                 continue
             raise last_err from e
-        except (urllib.error.URLError, TimeoutError, KeyError) as e:
+        except (
+            urllib.error.URLError,
+            TimeoutError,
+            IncompleteRead,
+            ConnectionResetError,
+            ConnectionAbortedError,
+            BrokenPipeError,
+            KeyError,
+            json.JSONDecodeError,
+        ) as e:
             last_err = e
-            time.sleep(3 * (attempt + 1))
-    raise RuntimeError(f"DeepSeek недоступен после повторов: {last_err}")
+            wait = 5 * (attempt + 1)
+            print(f"    DeepSeek: повтор {attempt + 2}/{max_attempts} через {wait} с ({type(e).__name__})",
+                  file=sys.stderr)
+            time.sleep(wait)
+    raise RuntimeError(f"DeepSeek недоступен после {max_attempts} попыток: {last_err}")
 
 
 # --------------------------------------------------------------------------- #
 #  Загрузка и группировка писем
 # --------------------------------------------------------------------------- #
-def load_messages() -> list[dict[str, Any]]:
+_MAILBOX_IN_HEADER = re.compile(r"\(([^)]+@[^)]+)\)")
+
+
+def _header_field(header_lines: list[str], prefix: str) -> str:
+    for line in header_lines:
+        if line.startswith(prefix):
+            return line.split(":", 1)[1].strip()
+    return ""
+
+
+def _block_to_message(client: str, header_lines: list[str], body: str) -> dict[str, Any]:
+    """Преобразовать блок из thread.txt в формат all_messages.jsonl."""
+    role_line = header_lines[1] if len(header_lines) > 1 else ""
+    incoming = "КЛИЕНТ →" in role_line
+    mbox = _MAILBOX_IN_HEADER.search(role_line)
+    mailbox = mbox.group(1).strip().lower() if mbox else ""
+    return {
+        "mailbox_account": mailbox,
+        "mailbox_folder": "INBOX" if incoming else "Sent",
+        "direction": "incoming" if incoming else "outgoing",
+        "counterpart": client.strip().lower(),
+        "subject": _header_field(header_lines, "Тема:"),
+        "from": _header_field(header_lines, "От:"),
+        "to": _header_field(header_lines, "Кому:"),
+        "date": _header_field(header_lines, "Дата:"),
+        "message_id": "",
+        "text": body.strip(),
+        "source": "mailbox_export_clean",
+    }
+
+
+def load_messages_from_clean_threads(
+    threads_dir: Path = CLEAN_THREADS_DIR,
+) -> list[dict[str, Any]]:
+    """Загрузить письма из очищенных переписок mailbox_export_clean/threads."""
+    if not threads_dir.is_dir():
+        raise FileNotFoundError(f"Нет каталога {threads_dir}")
+
+    # Ленивый import — clean_thread_quotes не тянет build_knowledge_base при очистке.
+    scripts_dir = Path(__file__).resolve().parent
+    if str(scripts_dir) not in sys.path:
+        sys.path.insert(0, str(scripts_dir))
+    from clean_thread_quotes import parse_thread_file  # noqa: WPS433
+
+    msgs: list[dict[str, Any]] = []
+    paths = sorted(threads_dir.glob("*.txt"))
+    if not paths:
+        raise FileNotFoundError(f"В {threads_dir} нет *.txt")
+
+    for path in paths:
+        client, _, blocks = parse_thread_file(path.read_text(encoding="utf-8"))
+        if not client:
+            continue
+        for block in blocks:
+            msgs.append(_block_to_message(client, block.header_lines, block.body))
+    return msgs
+
+
+def load_messages(*, prefer_clean: bool = True) -> list[dict[str, Any]]:
+    """Загрузить письма: по умолчанию из mailbox_export_clean, иначе jsonl."""
+    if prefer_clean and CLEAN_THREADS_DIR.is_dir():
+        try:
+            msgs = load_messages_from_clean_threads()
+            print(f"  Источник: {CLEAN_THREADS_DIR} ({len(msgs)} писем)")
+            return msgs
+        except FileNotFoundError:
+            pass
+
     if not JSONL_PATH.is_file():
         raise FileNotFoundError(
-            f"Нет {JSONL_PATH}. Сначала запустите export_manager_mailboxes.py"
+            f"Нет {CLEAN_THREADS_DIR} и {JSONL_PATH}. "
+            "Запустите export_manager_mailboxes.py и clean_thread_quotes.py"
         )
     msgs: list[dict[str, Any]] = []
     with JSONL_PATH.open("r", encoding="utf-8") as f:
@@ -139,6 +225,7 @@ def load_messages() -> list[dict[str, Any]]:
                     msgs.append(json.loads(line))
                 except json.JSONDecodeError:
                     continue
+    print(f"  Источник: {JSONL_PATH} ({len(msgs)} писем)")
     return msgs
 
 
@@ -236,6 +323,47 @@ STOPWORDS = {
     "so", "as", "at", "by", "from", "but", "not", "they", "he", "she",
     "please", "thank", "thanks", "dear", "hi", "hello", "am", "was", "were",
 }
+
+
+# Намерение назначить/обсудить звонок (исходящие письма менеджера) — для оценки
+# скорости продвижения к созвону. Вынесено на модульный уровень для переиспользования.
+CALL_INTENT_RE = re.compile(
+    r"schedule a (?:brief |short |quick )?call|arrange a call|book a call|"
+    r"set up a call|hop on a call|jump on a call|quick call|brief call|"
+    r"onboarding call|call at your convenience|let'?s schedule|"
+    r"what time works|your time zone|convenient time|available for a call|"
+    r"propose (?:a )?(?:few )?slots?|suggest (?:a )?(?:few )?time",
+    re.I,
+)
+# Намерение/факт оплаты — прокси для перехода к сделке.
+PAYMENT_RE = re.compile(
+    r"\bretainer\b|\binvoice\b|wire (?:transfer|instructions)|installment|"
+    r"\bpayment\b|\bdeposit\b|first instal?ment|bank transfer",
+    re.I,
+)
+
+# Человекочитаемые имена ящиков менеджеров.
+MANAGER_NAMES = {
+    "a.antonova@arkvostok.com": "Anna (Анна)",
+    "e.novik@arkvostok.com": "Evgenija (Евгения)",
+    "n.perry@arkvostok.com": "Nadia (Надежда)",
+}
+
+
+def _dt_of(m: dict[str, Any]):
+    """Дата письма как aware datetime (UTC для наивных) либо None."""
+    from datetime import timezone
+    from email.utils import parsedate_to_datetime
+
+    try:
+        dt = parsedate_to_datetime(m.get("date", ""))
+    except Exception:
+        return None
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt
 
 
 def _sentences(text: str) -> list[str]:
@@ -337,6 +465,152 @@ def analyze_deterministic(
         "topics": topic_counter.most_common(),
         "top_client_questions": top_questions,
         "booking_phrases": booking_sentences.most_common(30),
+    }
+
+
+# --------------------------------------------------------------------------- #
+#  Слой 1b: временной анализ (скорость ответа, темп воронки)
+# --------------------------------------------------------------------------- #
+# Аномально большие задержки (письмо «всплыло» спустя месяцы) не считаем
+# скоростью ответа менеджера — режем по этому порогу.
+MAX_REPLY_SECONDS = 30 * 24 * 3600
+
+
+def _pct(values: list[float], q: float) -> float:
+    if not values:
+        return 0.0
+    s = sorted(values)
+    k = max(0, min(len(s) - 1, int(round(q * (len(s) - 1)))))
+    return s[k]
+
+
+def _median(values: list[float]) -> float:
+    if not values:
+        return 0.0
+    s = sorted(values)
+    n = len(s)
+    mid = n // 2
+    return s[mid] if n % 2 else (s[mid - 1] + s[mid]) / 2
+
+
+def analyze_temporal(threads: dict[str, list[dict[str, Any]]]) -> dict[str, Any]:
+    """Скорость ответа по менеджерам и оценочный темп прохождения воронки.
+
+    Скорость ответа: задержка между входящим письмом клиента и следующим
+    исходящим письмом менеджера (атрибутируется автору исходящего).
+    Темп воронки: длительность диалога, число писем, время до первого
+    предложения созвона и до первого упоминания оплаты (прокси-метрики).
+    """
+    per_mgr: dict[str, list[float]] = defaultdict(list)  # секунды
+    first_response: list[float] = []   # часы: первый ответ менеджера в диалоге
+    spans_days: list[float] = []       # длительность диалога, дни
+    msgs_per_thread: list[float] = []
+    days_to_call: list[float] = []     # от старта до первого предложения созвона
+    days_to_payment: list[float] = []  # от старта до первого упоминания оплаты
+
+    for _client, msgs in threads.items():
+        has_in = any(m["direction"] == "incoming" for m in msgs)
+        has_out = any(m["direction"] == "outgoing" for m in msgs)
+
+        # Задержки ответа менеджера (по всем диалогам, где есть пары вход→исход).
+        for i in range(1, len(msgs)):
+            prev, cur = msgs[i - 1], msgs[i]
+            if prev["direction"] != "incoming" or cur["direction"] != "outgoing":
+                continue
+            d0, d1 = _dt_of(prev), _dt_of(cur)
+            if not d0 or not d1:
+                continue
+            delta = (d1 - d0).total_seconds()
+            if 0 < delta <= MAX_REPLY_SECONDS:
+                per_mgr[cur.get("mailbox_account", "")].append(delta)
+
+        if not (has_in and has_out):
+            continue
+
+        dts = [d for d in (_dt_of(m) for m in msgs) if d is not None]
+        if len(dts) >= 2:
+            spans_days.append((max(dts) - min(dts)).total_seconds() / 86400)
+        msgs_per_thread.append(float(len(msgs)))
+
+        start_dt = dts[0] if dts else None
+        if start_dt is None:
+            continue
+
+        # Первый ответ менеджера на первое письмо клиента.
+        first_in_dt = next((_dt_of(m) for m in msgs if m["direction"] == "incoming"), None)
+        if first_in_dt:
+            reply_dt = next(
+                (
+                    _dt_of(m)
+                    for m in msgs
+                    if m["direction"] == "outgoing"
+                    and _dt_of(m) is not None
+                    and _dt_of(m) >= first_in_dt
+                ),
+                None,
+            )
+            if reply_dt:
+                fr = (reply_dt - first_in_dt).total_seconds()
+                if 0 <= fr <= MAX_REPLY_SECONDS:
+                    first_response.append(fr / 3600)
+
+        # Время до первого предложения созвона (исходящее письмо менеджера).
+        call_dt = next(
+            (
+                _dt_of(m)
+                for m in msgs
+                if m["direction"] == "outgoing" and CALL_INTENT_RE.search(m.get("text", "") or "")
+            ),
+            None,
+        )
+        if call_dt:
+            days_to_call.append(max(0.0, (call_dt - start_dt).total_seconds() / 86400))
+
+        # Время до первого упоминания оплаты.
+        pay_dt = next(
+            (
+                _dt_of(m)
+                for m in msgs
+                if PAYMENT_RE.search(m.get("text", "") or "")
+            ),
+            None,
+        )
+        if pay_dt:
+            days_to_payment.append(max(0.0, (pay_dt - start_dt).total_seconds() / 86400))
+
+    def mgr_row(account: str, lat: list[float]) -> dict[str, Any]:
+        hours = [x / 3600 for x in lat]
+        within_24h = sum(1 for h in hours if h <= 24)
+        return {
+            "account": account,
+            "name": MANAGER_NAMES.get(account, account),
+            "replies": len(hours),
+            "median_h": round(_median(hours), 1),
+            "mean_h": round(sum(hours) / len(hours), 1) if hours else 0.0,
+            "p90_h": round(_pct(hours, 0.9), 1),
+            "within_24h_pct": round(100 * within_24h / len(hours)) if hours else 0,
+        }
+
+    manager_speed = [
+        mgr_row(acc, lat)
+        for acc, lat in sorted(per_mgr.items(), key=lambda kv: -len(kv[1]))
+        if acc
+    ]
+
+    return {
+        "manager_speed": manager_speed,
+        "funnel_pace": {
+            "two_way_threads": len(msgs_per_thread),
+            "first_response_median_h": round(_median(first_response), 1),
+            "first_response_p90_h": round(_pct(first_response, 0.9), 1),
+            "conversation_span_median_days": round(_median(spans_days), 1),
+            "conversation_span_p90_days": round(_pct(spans_days, 0.9), 1),
+            "messages_per_thread_median": round(_median(msgs_per_thread), 1),
+            "days_to_call_proposal_median": round(_median(days_to_call), 1),
+            "days_to_call_proposal_n": len(days_to_call),
+            "days_to_payment_mention_median": round(_median(days_to_payment), 1),
+            "days_to_payment_mention_n": len(days_to_payment),
+        },
     }
 
 
@@ -463,8 +737,10 @@ def _map_one(
     temperature: float,
     log_lock: Lock,
     force: bool,
+    intermediate_dir: Path,
+    map_char_budget: int,
 ) -> tuple[int, str | None]:
-    cache = INTERMEDIATE_DIR / f"map_{i:03d}.json"
+    cache = intermediate_dir / f"map_{i:03d}.json"
     if cache.is_file() and not force:
         try:
             note = json.loads(cache.read_text(encoding="utf-8"))["note"]
@@ -473,7 +749,7 @@ def _map_one(
             return i, note
         except Exception:
             pass
-    thread_text = _render_thread(client, msgs, MAP_THREAD_CHAR_BUDGET)
+    thread_text = _render_thread(client, msgs, map_char_budget)
     user = MAP_TEMPLATE.format(client=_anon(client), thread=thread_text)
     try:
         note = call_deepseek(MAP_SYSTEM, user, temperature=temperature)
@@ -496,9 +772,11 @@ def run_map(
     max_threads: int,
     temperature: float,
     workers: int,
+    intermediate_dir: Path = INTERMEDIATE_DIR,
     force: bool = False,
+    map_char_budget: int = MAP_THREAD_CHAR_BUDGET,
 ) -> list[str]:
-    INTERMEDIATE_DIR.mkdir(parents=True, exist_ok=True)
+    intermediate_dir.mkdir(parents=True, exist_ok=True)
     # Только двусторонние диалоги, по убыванию числа писем (богаче контент).
     two_way = {
         c: ms
@@ -507,18 +785,23 @@ def run_map(
         and any(x["direction"] == "incoming" for x in ms)
     }
     ranked = sorted(two_way.items(), key=lambda kv: len(kv[1]), reverse=True)
-    ranked = ranked[:max_threads]
+    # max_threads <= 0 → анализируем ВСЕ двусторонние диалоги (макс. качество).
+    if max_threads and max_threads > 0:
+        ranked = ranked[:max_threads]
     total = len(ranked)
     print(
         f"  Map: диалогов к обработке: {total} (из {len(two_way)} двусторонних), "
-        f"параллельно: {workers}"
+        f"бюджет {map_char_budget} симв./диалог, параллельно: {workers}"
     )
 
     log_lock = Lock()
     results: dict[int, str] = {}
     with ThreadPoolExecutor(max_workers=workers) as ex:
         futures = [
-            ex.submit(_map_one, i, total, client, msgs, temperature, log_lock, force)
+            ex.submit(
+                _map_one, i, total, client, msgs, temperature, log_lock, force,
+                intermediate_dir, map_char_budget,
+            )
             for i, (client, msgs) in enumerate(ranked, start=1)
         ]
         for fut in as_completed(futures):
@@ -551,19 +834,26 @@ def _group_by_budget(items: list[str], budget: int) -> list[list[str]]:
     return groups
 
 
-def run_reduce(notes: list[str], *, temperature: float, force: bool = False) -> str:
+def run_reduce(
+    notes: list[str],
+    *,
+    temperature: float,
+    intermediate_dir: Path = INTERMEDIATE_DIR,
+    force: bool = False,
+    reduce_group_budget: int = REDUCE_GROUP_CHAR_BUDGET,
+) -> str:
     if not notes:
         return ""
-    final_cache = INTERMEDIATE_DIR / "final.md"
+    final_cache = intermediate_dir / "final.md"
     if final_cache.is_file() and not force:
         print("  Final: из кэша")
         return final_cache.read_text(encoding="utf-8")
 
-    groups = _group_by_budget(notes, REDUCE_GROUP_CHAR_BUDGET)
-    print(f"  Reduce: групп заметок: {len(groups)}")
+    groups = _group_by_budget(notes, reduce_group_budget)
+    print(f"  Reduce: групп заметок: {len(groups)} (бюджет {reduce_group_budget} симв.)")
     fragments: list[str] = []
     for gi, group in enumerate(groups, start=1):
-        frag_cache = INTERMEDIATE_DIR / f"reduce_{gi:02d}.md"
+        frag_cache = intermediate_dir / f"reduce_{gi:02d}.md"
         if frag_cache.is_file() and not force:
             fragments.append(frag_cache.read_text(encoding="utf-8"))
             print(f"  Reduce {gi}/{len(groups)} (из кэша)")
@@ -622,6 +912,64 @@ def render_data_appendix(stats: dict[str, Any]) -> str:
     table("Типы виз/статусов", stats["visa_terms"], ("Термин", "Писем"))
     table("Тематики переписки", stats["topics"], ("Тема", "Писем"))
 
+    # Скорость ответа менеджеров.
+    speed = stats.get("manager_speed") or []
+    if speed:
+        lines.append("### Скорость ответа менеджеров")
+        lines.append("")
+        lines.append(
+            "Задержка между письмом клиента и следующим ответом менеджера "
+            f"(учтены ответы в пределах {MAX_REPLY_SECONDS // 86400} дней)."
+        )
+        lines.append("")
+        lines.append("| Менеджер | Ответов | Медиана, ч | Среднее, ч | p90, ч | ≤24 ч, % |")
+        lines.append("| --- | ---: | ---: | ---: | ---: | ---: |")
+        for r in speed:
+            name = str(r["name"]).replace("|", "\\|")
+            lines.append(
+                f"| {name} | {r['replies']} | {r['median_h']} | {r['mean_h']} "
+                f"| {r['p90_h']} | {r['within_24h_pct']} |"
+            )
+        lines.append("")
+
+    # Темп прохождения воронки (оценочно).
+    pace = stats.get("funnel_pace") or {}
+    if pace:
+        lines.append("### Темп и длительность воронки (оценочно)")
+        lines.append("")
+        lines.append(
+            "Прокси-метрики по двусторонним диалогам "
+            f"({pace.get('two_way_threads', 0)} шт.). Медиана устойчива к выбросам."
+        )
+        lines.append("")
+        lines.append("| Метрика | Медиана | p90 |")
+        lines.append("| --- | ---: | ---: |")
+        lines.append(
+            f"| Первый ответ менеджера, ч | {pace.get('first_response_median_h')} "
+            f"| {pace.get('first_response_p90_h')} |"
+        )
+        lines.append(
+            f"| Длительность диалога, дней | {pace.get('conversation_span_median_days')} "
+            f"| {pace.get('conversation_span_p90_days')} |"
+        )
+        lines.append(
+            f"| Писем в диалоге | {pace.get('messages_per_thread_median')} | — |"
+        )
+        lines.append(
+            f"| Дней до предложения созвона | {pace.get('days_to_call_proposal_median')} "
+            f"| — | "
+        )
+        lines.append(
+            f"| Дней до упоминания оплаты | {pace.get('days_to_payment_mention_median')} "
+            f"| — |"
+        )
+        lines.append("")
+        lines.append(
+            f"Предложение созвона зафиксировано в {pace.get('days_to_call_proposal_n', 0)} "
+            f"диалогах, упоминание оплаты — в {pace.get('days_to_payment_mention_n', 0)}."
+        )
+        lines.append("")
+
     lines.append("### Частые вопросы клиентов (по кластерам ключевых слов)")
     lines.append("")
     for q in stats["top_client_questions"][:30]:
@@ -650,12 +998,25 @@ def inject_timezone_reference(md: str) -> str:
     return md[:pos].rstrip() + "\n\n" + ref + "\n\n" + md[pos:]
 
 
-def write_kb(final_md: str, stats: dict[str, Any]) -> None:
-    KB_DIR.mkdir(parents=True, exist_ok=True)
+def write_kb(
+    final_md: str,
+    stats: dict[str, Any],
+    *,
+    kb_dir: Path = KB_DIR,
+    build_meta: dict[str, Any] | None = None,
+) -> None:
+    kb_dir.mkdir(parents=True, exist_ok=True)
+    kb_path = kb_dir / "movetorussia_agent_kb.md"
+    meta = build_meta or {}
     header = (
         f"<!-- Сгенерировано build_knowledge_base.py "
-        f"{datetime.now().strftime('%Y-%m-%d %H:%M')} из реальных переписок -->\n\n"
+        f"{datetime.now().strftime('%Y-%m-%d %H:%M')} из реальных переписок"
     )
+    if meta.get("message_source"):
+        header += f" | источник: {meta['message_source']}"
+    if meta.get("map_char_budget"):
+        header += f" | map-бюджет: {meta['map_char_budget']}"
+    header += " -->\n\n"
     body_parts = [header]
     if final_md.strip():
         body_parts.append(inject_timezone_reference(final_md.strip()))
@@ -663,10 +1024,11 @@ def write_kb(final_md: str, stats: dict[str, Any]) -> None:
     else:
         body_parts.append("# База знаний MoveToRussia (LLM-слой пропущен)\n")
     body_parts.append(render_data_appendix(stats))
-    KB_PATH.write_text("\n".join(body_parts).rstrip() + "\n", encoding="utf-8", newline="\n")
+    kb_path.write_text("\n".join(body_parts).rstrip() + "\n", encoding="utf-8", newline="\n")
 
-    (KB_DIR / "analysis_stats.json").write_text(
-        json.dumps(stats, ensure_ascii=False, indent=2), encoding="utf-8"
+    (kb_dir / "analysis_stats.json").write_text(
+        json.dumps({**stats, "build_meta": meta}, ensure_ascii=False, indent=2),
+        encoding="utf-8",
     )
 
 
@@ -676,8 +1038,70 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--max-threads", type=int, default=DEFAULT_MAX_THREADS)
     p.add_argument("--workers", type=int, default=6, help="Параллельных запросов к DeepSeek")
     p.add_argument("--force-llm", action="store_true", help="Пересобрать LLM-слой без кэша")
+    p.add_argument("--jsonl", action="store_true",
+                   help="Использовать mailbox_export/all_messages.jsonl вместо clean")
     p.add_argument("--temperature", type=float, default=DEEPSEEK_TEMPERATURE)
     return p.parse_args()
+
+
+def build_knowledge_base(
+    messages: list[dict[str, Any]],
+    *,
+    kb_dir: Path = KB_DIR,
+    skip_llm: bool = False,
+    max_threads: int = DEFAULT_MAX_THREADS,
+    workers: int = 6,
+    temperature: float = DEEPSEEK_TEMPERATURE,
+    force_llm: bool = False,
+    map_char_budget: int = MAP_THREAD_CHAR_BUDGET,
+    reduce_group_budget: int = REDUCE_GROUP_CHAR_BUDGET,
+    build_meta: dict[str, Any] | None = None,
+) -> Path:
+    """Собрать одну базу знаний из списка сообщений в каталог kb_dir.
+
+    Используется как из main() (общая БЗ), так и из build_kb_versions.py
+    (отдельные версии v1–v4). max_threads<=0 → анализировать все диалоги.
+    """
+    intermediate_dir = kb_dir / "_intermediate"
+    threads = group_threads(messages)
+    print(f"  Писем: {len(messages)} | клиентов: {len(threads)}")
+
+    print("Детерминированный анализ…")
+    stats = analyze_deterministic(messages, threads)
+    stats.update(analyze_temporal(threads))
+
+    final_md = ""
+    if not skip_llm:
+        print("LLM map-фаза…")
+        t0 = time.time()
+        notes = run_map(
+            threads,
+            max_threads=max_threads,
+            temperature=temperature,
+            workers=workers,
+            intermediate_dir=intermediate_dir,
+            force=force_llm,
+            map_char_budget=map_char_budget,
+        )
+        print(f"  Map готов: {len(notes)} заметок за {time.time()-t0:.0f} c")
+        print("LLM reduce-фаза…")
+        final_md = run_reduce(
+            notes,
+            temperature=temperature,
+            intermediate_dir=intermediate_dir,
+            force=force_llm,
+            reduce_group_budget=reduce_group_budget,
+        )
+
+    meta = {
+        **(build_meta or {}),
+        "map_char_budget": map_char_budget,
+        "reduce_group_budget": reduce_group_budget,
+        "max_threads": max_threads,
+    }
+    write_kb(final_md, stats, kb_dir=kb_dir, build_meta=meta)
+    print(f"  База знаний: {kb_dir / 'movetorussia_agent_kb.md'}")
+    return kb_dir
 
 
 def main() -> int:
@@ -685,29 +1109,17 @@ def main() -> int:
     args = parse_args()
 
     print("Загрузка писем…")
-    messages = load_messages()
-    threads = group_threads(messages)
-    print(f"  Писем: {len(messages)} | клиентов: {len(threads)}")
+    messages = load_messages(prefer_clean=not args.jsonl)
 
-    print("Детерминированный анализ…")
-    stats = analyze_deterministic(messages, threads)
-
-    final_md = ""
-    if not args.skip_llm:
-        print("LLM map-фаза…")
-        t0 = time.time()
-        notes = run_map(
-            threads,
-            max_threads=args.max_threads,
-            temperature=args.temperature,
-            workers=args.workers,
-            force=args.force_llm,
-        )
-        print(f"  Map готов: {len(notes)} заметок за {time.time()-t0:.0f} c")
-        print("LLM reduce-фаза…")
-        final_md = run_reduce(notes, temperature=args.temperature, force=args.force_llm)
-
-    write_kb(final_md, stats)
+    build_knowledge_base(
+        messages,
+        kb_dir=KB_DIR,
+        skip_llm=args.skip_llm,
+        max_threads=args.max_threads,
+        workers=args.workers,
+        temperature=args.temperature,
+        force_llm=args.force_llm,
+    )
     print(f"\nГотово. База знаний: {KB_PATH}")
     print(f"Статистика: {KB_DIR / 'analysis_stats.json'}")
     return 0

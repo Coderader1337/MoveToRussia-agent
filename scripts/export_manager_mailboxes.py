@@ -10,7 +10,7 @@
   threads/<client>.txt   — единая хронологическая переписка по клиенту
   all_messages.jsonl     — все письма построчным JSON (вход для анализа)
   index.csv              — сводка по клиентам (строки)
-  client_message_stats.csv — email клиентов в столбцах, под ними число писем (↓)
+  client_message_stats.csv — email клиентов и число писем по строкам (↓)
   summary.json           — общая статистика выгрузки
 
 Только чтение: EXAMINE (readonly=True) + BODY.PEEK[] (не ставит \\Seen).
@@ -78,6 +78,8 @@ AUTOMATED_DOMAINS = re.compile(
 )
 
 BODY_BATCH = 50
+# Yandex IMAP перестаёт отдавать FETCH после ~2000 операций в одной сессии.
+FETCH_RECONNECT_EVERY = 1500
 
 MAIL_SEPARATOR = "=" * 78
 INNER_RULE = "-" * 78
@@ -163,22 +165,98 @@ def _iter_fetch_tuples(data: list[Any]):
         yield seq, bytes(body)
 
 
+def _fetch_one_chunk(mail: imaplib.IMAP4_SSL, ids: list[bytes]) -> dict[int, bytes]:
+    """Один IMAP FETCH для списка seq (до BODY_BATCH штук)."""
+    if not ids:
+        return {}
+    idset = b",".join(ids)
+    out: dict[int, bytes] = {}
+    try:
+        status, data = mail.fetch(idset, "(BODY.PEEK[])")
+    except imaplib.IMAP4.error:
+        return {}
+    if status != "OK" or not data:
+        return {}
+    for seq, raw in _iter_fetch_tuples(data):
+        if seq > 0 and len(raw) > 40:
+            out[seq] = raw
+    return out
+
+
 def fetch_raw_batch(mail: imaplib.IMAP4_SSL, ids: list[bytes]) -> dict[int, bytes]:
-    """seq_id -> сырое письмо (BODY.PEEK[], батчами для скорости)."""
+    """seq_id -> сырое письмо (BODY.PEEK[], батчами). Без переподключения."""
     out: dict[int, bytes] = {}
     for i in range(0, len(ids), BODY_BATCH):
         chunk = ids[i : i + BODY_BATCH]
-        idset = b",".join(chunk)
-        try:
-            status, data = mail.fetch(idset, "(BODY.PEEK[])")
-        except imaplib.IMAP4.error:
-            continue
-        if status != "OK" or not data:
-            continue
-        for seq, raw in _iter_fetch_tuples(data):
-            if seq > 0 and len(raw) > 40:
-                out[seq] = raw
+        out.update(_fetch_one_chunk(mail, chunk))
     return out
+
+
+class _MailboxSession:
+    """IMAP-сессия с переподключением при исчерпании лимита FETCH Yandex."""
+
+    def __init__(self, manager_email: str, manager_password: str) -> None:
+        self.email = manager_email
+        self.password = manager_password
+        self.mail = connect_imap(manager_email, manager_password)
+        self.fetch_ops = 0
+        self._folder_name: str | None = None
+
+    def _disconnect(self) -> None:
+        if self.mail is None:
+            return
+        try:
+            self.mail.close()
+        except Exception:
+            pass
+        try:
+            self.mail.logout()
+        except Exception:
+            pass
+        self.mail = None
+
+    def close(self) -> None:
+        self._disconnect()
+
+    def reconnect(self, reason: str = "") -> None:
+        suffix = f": {reason}" if reason else ""
+        print(f"  [{self.email}] переподключение IMAP{suffix}", file=sys.stderr)
+        self._disconnect()
+        self.mail = connect_imap(self.email, self.password)
+        self.fetch_ops = 0
+        if self._folder_name:
+            _select_mailbox(self.mail, [self._folder_name])
+
+    def open_folder(self, candidates: list[str]) -> str | None:
+        name = _select_mailbox(self.mail, candidates)
+        if name:
+            self._folder_name = name
+        return name
+
+    def search(self, criterion: str) -> list[bytes]:
+        return _search_ids(self.mail, criterion)
+
+    def fetch_chunk(self, chunk: list[bytes]) -> dict[int, bytes]:
+        if self.fetch_ops >= FETCH_RECONNECT_EVERY:
+            self.reconnect(f"лимит {FETCH_RECONNECT_EVERY} FETCH")
+        result = _fetch_one_chunk(self.mail, chunk)
+        self.fetch_ops += 1
+
+        missing = [sid for sid in chunk if int(sid) not in result]
+        if not missing:
+            return result
+
+        self.reconnect(f"не загружено {len(missing)}/{len(chunk)}")
+        retry = _fetch_one_chunk(self.mail, missing)
+        self.fetch_ops += 1
+        result.update(retry)
+
+        still_missing = [sid for sid in missing if int(sid) not in result]
+        for sid in still_missing:
+            one = _fetch_one_chunk(self.mail, [sid])
+            self.fetch_ops += 1
+            result.update(one)
+        return result
 
 
 def _header_meta(msg: Any) -> dict[str, Any]:
@@ -206,9 +284,15 @@ def collect_from_account(
     sink: list[dict[str, Any]],
 ) -> dict[str, int]:
     """Собирает письма в общий список ``sink`` (устойчиво к обрыву сессии)."""
-    stats = {"inbox_seen": 0, "sent_total": 0, "skipped": 0, "fetched": 0}
+    stats = {
+        "inbox_seen": 0,
+        "sent_total": 0,
+        "skipped": 0,
+        "fetched": 0,
+        "fetch_failed": 0,
+    }
     messages = sink
-    mail = connect_imap(manager_email, manager_password)
+    session = _MailboxSession(manager_email, manager_password)
     try:
         sent_name = _env("IMAP_SENT_MAILBOX") or ""
         sent_candidates = [sent_name] if sent_name else []
@@ -220,46 +304,39 @@ def collect_from_account(
 
         # INBOX (прочитанные входящие)
         for mailbox, direction, criterion in plan:
-            selected = _select_mailbox(mail, [mailbox])
+            selected = session.open_folder([mailbox])
             if not selected:
                 print(f"  [{manager_email}] папка {mailbox} недоступна", file=sys.stderr)
                 continue
-            ids = _search_ids(mail, criterion)
+            ids = session.search(criterion)
             if direction == "incoming":
                 stats["inbox_seen"] = len(ids)
             if limit:
                 ids = ids[-limit:]
             messages += _collect_messages(
-                mail, ids, direction, manager_email, selected, stats
+                session, ids, direction, manager_email, selected, stats
             )
 
         # Sent (все исходящие)
-        sent_selected = _select_mailbox(mail, sent_candidates)
+        sent_selected = session.open_folder(sent_candidates)
         if sent_selected:
             crit = f"(SINCE {since})" if since else "ALL"
-            ids = _search_ids(mail, crit)
+            ids = session.search(crit)
             stats["sent_total"] = len(ids)
             if limit:
                 ids = ids[-limit:]
             messages += _collect_messages(
-                mail, ids, "outgoing", manager_email, sent_selected, stats
+                session, ids, "outgoing", manager_email, sent_selected, stats
             )
         else:
             print(f"  [{manager_email}] папка исходящих не найдена", file=sys.stderr)
     finally:
-        try:
-            mail.close()
-        except Exception:
-            pass
-        try:
-            mail.logout()
-        except Exception:
-            pass
+        session.close()
     return stats
 
 
 def _collect_messages(
-    mail: imaplib.IMAP4_SSL,
+    session: _MailboxSession,
     ids: list[bytes],
     direction: str,
     manager_email: str,
@@ -270,12 +347,13 @@ def _collect_messages(
         return []
     out: list[dict[str, Any]] = []
     total = len(ids)
-    done = 0
     for i in range(0, len(ids), BODY_BATCH):
         chunk = ids[i : i + BODY_BATCH]
-        raw_by_seq = fetch_raw_batch(mail, chunk)
-        for seq, raw in raw_by_seq.items():
-            done += 1
+        raw_by_seq = session.fetch_chunk(chunk)
+        stats["fetch_failed"] += sum(
+            1 for sid in chunk if int(sid) not in raw_by_seq
+        )
+        for _seq, raw in raw_by_seq.items():
             try:
                 msg = message_from_bytes(raw)
             except Exception:
@@ -311,7 +389,7 @@ def _collect_messages(
             )
         print(
             f"    [{manager_email}/{mailbox_label}/{direction}] "
-            f"{min(done, total)}/{total} (собрано {len(out)})"
+            f"{min(i + len(chunk), total)}/{total} (собрано {len(out)})"
         )
     return out
 
@@ -362,21 +440,28 @@ def write_thread_file(client: str, msgs: list[dict[str, Any]]) -> Path:
     return path
 
 
-def write_client_stats_wide_csv(
+def write_client_stats_csv(
     index_rows: list[dict[str, Any]], path: Path
 ) -> None:
     """
-    Широкий CSV: строка 1 — email клиентов, строка 2 — число писем.
-    Слева направо по убыванию количества писем.
+    CSV по строкам: client, messages, outgoing, incoming, first_date, last_date, two_way.
+    Сортировка по убыванию messages.
     """
     sorted_rows = sorted(index_rows, key=lambda r: int(r["messages"]), reverse=True)
-    emails = [str(r["client"]) for r in sorted_rows]
-    counts = [str(r["messages"]) for r in sorted_rows]
     path.parent.mkdir(parents=True, exist_ok=True)
+    fieldnames = [
+        "client",
+        "messages",
+        "outgoing",
+        "incoming",
+        "first_date",
+        "last_date",
+        "two_way",
+    ]
     with path.open("w", encoding="utf-8-sig", newline="") as f:
-        writer = csv.writer(f)
-        writer.writerow(emails)
-        writer.writerow(counts)
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows({k: row[k] for k in fieldnames} for row in sorted_rows)
 
 
 def write_outputs(messages: list[dict[str, Any]]) -> dict[str, Any]:
@@ -437,7 +522,7 @@ def write_outputs(messages: list[dict[str, Any]]) -> dict[str, Any]:
         writer.writeheader()
         writer.writerows(index_rows)
 
-    write_client_stats_wide_csv(index_rows, OUTPUT_DIR / "client_message_stats.csv")
+    write_client_stats_csv(index_rows, OUTPUT_DIR / "client_message_stats.csv")
 
     summary = {
         "total_messages": len(messages),
@@ -497,10 +582,17 @@ def main() -> int:
         except (imaplib.IMAP4.error, OSError) as exc:
             print(f"  Сессия {addr} прервана: {exc} (частичные данные сохранены)",
                   file=sys.stderr)
-            stats = {"inbox_seen": 0, "sent_total": 0, "skipped": 0, "fetched": 0}
+            stats = {
+                "inbox_seen": 0,
+                "sent_total": 0,
+                "skipped": 0,
+                "fetched": 0,
+                "fetch_failed": 0,
+            }
         print(
             f"  INBOX(прочит.): {stats['inbox_seen']} | Sent: {stats['sent_total']} | "
             f"тел загружено: {stats['fetched']} | пропущено: {stats['skipped']} | "
+            f"FETCH ошибок: {stats['fetch_failed']} | "
             f"в выборке: {len(all_messages) - before}"
         )
 
