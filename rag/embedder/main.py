@@ -6,11 +6,12 @@ import json
 import logging
 import os
 import time
+import urllib.error
+import urllib.request
 import uuid
 from typing import Any
 
 from fastapi import FastAPI, HTTPException
-import voyageai
 from pydantic import BaseModel, Field
 
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
@@ -23,27 +24,8 @@ VOYAGE_BASE_URL = os.getenv("VOYAGE_BASE_URL", "https://api.voyageai.com").rstri
 VOYAGE_OUTPUT_DIMENSION = int(os.getenv("VOYAGE_OUTPUT_DIMENSION", "2048"))
 VOYAGE_OUTPUT_DTYPE = os.getenv("VOYAGE_OUTPUT_DTYPE", "float")
 VOYAGE_TIMEOUT = int(os.getenv("VOYAGE_TIMEOUT", "120"))
-VOYAGE_RETRIES = int(os.getenv("VOYAGE_RETRIES", "3"))
 
 app = FastAPI(title="MoveToRussia Embedder", version="1.0.0")
-_client: voyageai.Client | None = None
-
-
-def get_client() -> voyageai.Client:
-    global _client
-    if _client is None:
-        if not VOYAGE_API_KEY:
-            raise HTTPException(
-                status_code=500,
-                detail="VOYAGE_API_KEY is not set",
-            )
-        _client = voyageai.Client(
-            api_key=VOYAGE_API_KEY,
-            base_url=VOYAGE_BASE_URL,
-            max_retries=VOYAGE_RETRIES,
-            timeout=VOYAGE_TIMEOUT,
-        )
-    return _client
 
 
 class EmbeddingRequest(BaseModel):
@@ -106,16 +88,43 @@ def _embed_texts(
 ) -> list[list[float]]:
     if not texts:
         return []
-    client = get_client()
-    result = client.embed(
-        texts,
-        model=MODEL_NAME,
-        input_type=input_type,
-        truncation=truncation,
-        output_dtype=output_dtype or VOYAGE_OUTPUT_DTYPE,
-        output_dimension=output_dimension or VOYAGE_OUTPUT_DIMENSION,
-    )
-    return [list(embedding) for embedding in result.embeddings]
+    try:
+        if not VOYAGE_API_KEY:
+            raise HTTPException(status_code=500, detail="VOYAGE_API_KEY is not set")
+
+        payload = {
+            "input": texts,
+            "model": MODEL_NAME,
+        }
+        if input_type is not None:
+            payload["input_type"] = input_type
+        payload["output_dimension"] = output_dimension or VOYAGE_OUTPUT_DIMENSION
+        if output_dtype is not None:
+            payload["output_dtype"] = output_dtype
+        if truncation is not None:
+            payload["truncation"] = truncation
+        req = urllib.request.Request(
+            f"{VOYAGE_BASE_URL}/v1/embeddings",
+            data=json.dumps(payload).encode("utf-8"),
+            headers={
+                "Authorization": f"Bearer {VOYAGE_API_KEY}",
+                "Content-Type": "application/json",
+            },
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=VOYAGE_TIMEOUT) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        detail = e.read().decode("utf-8", errors="replace")
+        status = e.code or 502
+        logger.warning("Voyage error %s: %s", status, detail[:500])
+        raise HTTPException(status_code=status, detail=detail[:500]) from e
+    except urllib.error.URLError as e:
+        logger.warning("Voyage transport error: %s", e)
+        raise HTTPException(status_code=502, detail=str(e)) from e
+
+    embeddings = (data.get("data") or [])
+    return [list(item["embedding"]) for item in embeddings]
 
 
 @app.post("/v1/embeddings", response_model=EmbeddingResponse)
