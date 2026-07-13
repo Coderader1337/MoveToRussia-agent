@@ -1,6 +1,7 @@
-# RAG-ассистент MoveToRussia (n8n + Qdrant + DeepSeek + Telegram)
+# RAG-ассистент MoveToRussia (Qdrant + Voyage AI + DeepSeek)
 
-Внутренний Q&A для менеджеров на основе **очищенных переписок** `mailbox_export_clean`, FAQ и загружаемых `.txt` файлов через Telegram.
+Внутренний Q&A для менеджеров на основе **очищенных переписок** `mailbox_export_clean`, FAQ и загружаемых `.txt` файлов.
+Сейчас фокус на локальном консольном тесте RAG. `n8n` отложен.
 
 ## Архитектура
 
@@ -8,18 +9,17 @@
 mailbox_export_clean/threads/*.txt
         │
         ▼
-scripts/rag_index_qdrant.py  ──embed──►  embedder (multilingual-e5)
-        │                                      │
-        └──────────────►  Qdrant  ◄────────────┘
+scripts/rag_index_qdrant.py  ──►  embedder proxy  ──►  Voyage API
+        │                                              │
+        └────────────────────────────►  Qdrant  ◄──────┘
                               ▲
-Telegram (.txt upload) ──n8n──┘
-Telegram (вопрос) ──n8n──► embed → search → DeepSeek → ответ
+scripts/rag_console_test.py ──►  query embed → search → DeepSeek → ответ
 ```
 
 | Компонент | Назначение |
 |-----------|------------|
 | **Qdrant** | Векторное хранилище (`movetorussia_kb`) |
-| **Embedder** | OpenAI-compatible API, модель `intfloat/multilingual-e5-small` |
+| **Embedder** | OpenAI-compatible proxy к Voyage API, модель `voyage-4-large` |
 | **DeepSeek** | Генерация ответа с контекстом (RAG) |
 | **n8n** | Telegram-бот: вопросы + загрузка `.txt` |
 | **mailbox_export_clean** | Источник переписок (1439 тредов) |
@@ -37,11 +37,16 @@ curl http://localhost:6333/healthz
 curl http://localhost:8081/health
 ```
 
-Первый запуск embedder скачивает модель (~100 MB) — подождите 1–2 минуты.
+Первый запуск proxy не скачивает локальную модель. Нужен только доступ к Voyage API.
+Если меняли `.env`, пересоздайте контейнеры:
+
+```powershell
+docker compose up -d --build --force-recreate
+```
 
 ## 2. Первичная индексация переписок
 
-Из корня репозитория (нужен запущенный Qdrant + embedder):
+Из корня репозитория (нужен запущенный Qdrant + embedder proxy):
 
 ```powershell
 # Проверка без записи
@@ -55,6 +60,13 @@ python scripts/rag_index_qdrant.py --recreate --include-faq
 ```
 
 Ожидаемый объём: ~15 000 чанков (письма) + ~300 FAQ.
+
+Для локального smoke-test:
+
+```powershell
+python scripts/rag_console_test.py "How long does the TRP process take?"
+python scripts/rag_console_test.py --no-answer
+```
 
 Переменные (`.env` в корне или `rag/.env`):
 
@@ -82,16 +94,19 @@ RAG_COLLECTION=movetorussia_kb
 
 | Переменная | Пример | Описание |
 |------------|--------|----------|
+| `VOYAGE_API_KEY` | `voy-...` | API-ключ Voyage |
+| `VOYAGE_MODEL` | `voyage-4-large` | Модель embeddings |
+| `VOYAGE_OUTPUT_DIMENSION` | `2048` | Размер вектора |
 | `DEEPSEEK_API_KEY` | `sk-...` | API-ключ DeepSeek |
 | `DEEPSEEK_MODEL` | `deepseek-chat` | Модель |
 | `DEEPSEEK_BASE_URL` | `https://api.deepseek.com` | Base URL |
 | `QDRANT_URL` | `http://qdrant:6333` | URL Qdrant (из n8n) |
-| `EMBEDDER_URL` | `http://embedder:8081` | URL embedder |
+| `EMBEDDER_URL` | `http://embedder:8081` | URL локального proxy |
 | `RAG_COLLECTION` | `movetorussia_kb` | Имя коллекции |
 | `RAG_TOP_K` | `6` | Число фрагментов контекста |
 | `TELEGRAM_ALLOWED_CHAT_IDS` | `123456,789012` | Опционально: whitelist chat_id |
 
-**n8n Cloud + VPS:** Qdrant и embedder должны быть доступны по URL с n8n (публичный IP VPS или tunnel).  
+**n8n Cloud + VPS:** Qdrant и embedder proxy должны быть доступны по URL с n8n (публичный IP VPS или tunnel).  
 **n8n self-hosted на том же VPS:** используйте имена сервисов Docker-сети (`http://qdrant:6333`).
 
 ### 3.4 Docker-сеть (n8n + RAG на одном VPS)
@@ -120,7 +135,7 @@ networks:
 ## 5. RAG-пайплайн (канон)
 
 1. **Chunking** — одно письмо = один чанк (+ FAQ, + upload chunks)
-2. **Embedding** — `passage:` / `query:` префиксы E5
+2. **Embedding** — `voyage-4-large` с `input_type=document/query`
 3. **Vector store** — Qdrant, cosine similarity
 4. **Retrieval** — top-K (по умолчанию 6)
 5. **Augmentation** — контекст в промпт
@@ -143,17 +158,16 @@ python scripts/rag_index_qdrant.py --recreate --include-faq
 | Проблема | Решение |
 |----------|---------|
 | `Connection refused` к Qdrant | `docker compose ps` в `rag/` |
-| Embedder долго стартует | Подождите healthcheck; смотрите `docker compose logs embedder` |
+| Embedder отвечает ошибкой | Проверьте `VOYAGE_API_KEY` и доступ к `api.voyageai.com` |
 | Пустые ответы | Проверьте `--dry-run` — есть ли чанки; выполнена ли индексация |
-| n8n не достучится до localhost | На VPS используйте IP/hostname сервиса, не `localhost` |
-| Telegram «Доступ запрещён» | Очистите `TELEGRAM_ALLOWED_CHAT_IDS` или добавьте свой chat_id |
+| `python scripts/rag_console_test.py` не находит ответ | Проверьте, что коллекция уже проиндексирована |
 
 ## Файлы
 
 | Путь | Назначение |
 |------|------------|
-| `rag/docker-compose.yml` | Qdrant + embedder |
+| `rag/docker-compose.yml` | Qdrant + Voyage proxy |
 | `scripts/rag_chunk.py` | Chunking из `mailbox_export_clean` |
 | `scripts/rag_index_qdrant.py` | Bulk-индексация |
-| `n8n/rag_telegram_assistant.json` | Telegram RAG workflow |
+| `scripts/rag_console_test.py` | Локальный smoke-test RAG |
 | `prompts/rag_assistant_prompt.py` | Системный промпт (справочно) |
