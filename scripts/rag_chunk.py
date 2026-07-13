@@ -229,18 +229,9 @@ def _chunks_from_thread_upload(text: str, source_name: str) -> list[RagChunk]:
     return out
 
 
-def voyage_document_text(text: str) -> str:
-    return text
-
-
-def voyage_query_text(text: str) -> str:
-    return text
-
-
-# Backward-compatible aliases for older scripts.
 def e5_passage(text: str) -> str:
-    return voyage_document_text(text)
+    return f"passage: {text}"
 
 
 def e5_query(text: str) -> str:
-    return voyage_query_text(text)
+    return f"query: {text}"

@@ -21,18 +21,10 @@ services:
   embedder:
     build: ./embedder
     container_name: movetorussia_embedder
-    env_file:
-      - .env
     ports:
       - "${EMBEDDER_PORT:-8081}:8081"
     environment:
-      - VOYAGE_API_KEY=${VOYAGE_API_KEY:-}
-      - VOYAGE_BASE_URL=${VOYAGE_BASE_URL:-https://api.voyageai.com}
-      - VOYAGE_MODEL=${VOYAGE_MODEL:-voyage-4-large}
-      - VOYAGE_OUTPUT_DIMENSION=${VOYAGE_OUTPUT_DIMENSION:-2048}
-      - VOYAGE_OUTPUT_DTYPE=${VOYAGE_OUTPUT_DTYPE:-float}
-      - VOYAGE_TIMEOUT=${VOYAGE_TIMEOUT:-120}
-      - VOYAGE_RETRIES=${VOYAGE_RETRIES:-3}
+      - EMBEDDING_MODEL=${EMBEDDING_MODEL:-intfloat/multilingual-e5-small}
       - LOG_LEVEL=INFO
     restart: unless-stopped
     healthcheck:
