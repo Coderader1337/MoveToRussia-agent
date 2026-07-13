@@ -5,7 +5,7 @@
        knowledge_base/v4/client_faq_review.csv  (--include-faq)
 Выход: коллекция Qdrant movetorussia_kb
 
-Требует запущенные rag/docker-compose.yml (Qdrant + embedder).
+Требует запущенные rag/docker-compose.yml (Qdrant + Voyage proxy embedder).
 
 .env:
   QDRANT_URL=http://localhost:6333
@@ -44,7 +44,6 @@ sys.path.insert(0, str(ROOT / "scripts"))
 
 from rag_chunk import (  # noqa: E402
     RagChunk,
-    e5_passage,
     iter_faq_chunks,
     iter_message_chunks_from_clean_threads,
     split_upload_text,
@@ -101,8 +100,13 @@ def ensure_collection(qdrant_url: str, collection: str, vector_size: int, recrea
     print(f"  Создана коллекция {collection} (dim={vector_size})")
 
 
-def embed_texts(embedder_url: str, texts: list[str]) -> list[list[float]]:
-    payload = {"texts": texts}
+def embed_texts(
+    embedder_url: str,
+    texts: list[str],
+    *,
+    input_type: str = "document",
+) -> list[list[float]]:
+    payload = {"texts": texts, "input_type": input_type}
     resp = http_json("POST", f"{embedder_url.rstrip('/')}/embed", payload, timeout=300)
     return resp["embeddings"]
 
@@ -173,8 +177,8 @@ def index_chunks(
 
     for i in range(0, len(chunks), BATCH_SIZE):
         batch = chunks[i : i + BATCH_SIZE]
-        texts = [e5_passage(c.content) for c in batch]
-        vectors = embed_texts(embedder_url, texts)
+        texts = [c.content for c in batch]
+        vectors = embed_texts(embedder_url, texts, input_type="document")
         upsert_batch(qdrant_url, collection, batch, vectors)
         stats["indexed"] += len(batch)
         stats["batches"] += 1
@@ -198,7 +202,8 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> int:
-    load_dotenv()
+    load_dotenv(ROOT / ".env")
+    load_dotenv(ROOT / "rag" / ".env")
     args = parse_args()
 
     print("=== MoveToRussia RAG indexer ===")
