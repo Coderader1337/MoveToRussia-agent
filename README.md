@@ -125,10 +125,14 @@ python export_client_thread_to_txt.py cluke92@icloud.com
 - Периодичность: 1-2 раза в день
 - Отчет менеджеру: список клиентов + draft писем
 
-### 🔗 Фаза 4 — Полноценный агент (планируется)
-- Vector DB (RAG) для долгосрочной памяти
+### 📋 Фаза 4 — RAG-ассистент (готово к развёртыванию)
+- Qdrant + embedder (`rag/docker-compose.yml`)
+- Индексация `mailbox_export_clean` → `scripts/rag_index_qdrant.py`
+- Telegram Q&A + загрузка `.txt` → `n8n/rag_telegram_assistant.json`
+- Инструкция: `docs/rag_setup.md`
+
+### 🔗 Фаза 5 — Полноценный агент (планируется)
 - CRM интеграция (EnvyCRM)
-- Интерактивный Telegram бот
 - Веб-интерфейс
 
 ---
