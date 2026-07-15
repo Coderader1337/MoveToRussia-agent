@@ -1,0 +1,6 @@
+langchain-core>=0.3
+langchain-openai>=0.2
+qdrant-client>=1.9
+voyageai>=0.3
+aiogram>=3.10
+python-dotenv>=1.0

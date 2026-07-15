@@ -42,3 +42,9 @@ Thumbs.db
 
 # Логи
 *.log
+
+# RAG (rag/)
+rag/.env
+rag/_smoke_qdrant_db/
+rag/__pycache__/
+rag/**/__pycache__/
