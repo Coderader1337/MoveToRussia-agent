@@ -39,7 +39,7 @@ class Settings:
     # --- Voyage embeddings ---
     voyage_model: str = os.getenv("VOYAGE_MODEL", "voyage-4-large")
     voyage_output_dimension: int = _get_int("VOYAGE_OUTPUT_DIMENSION", 1024)
-    voyage_batch_size: int = _get_int("VOYAGE_BATCH_SIZE", 64)
+    voyage_batch_size: int = _get_int("VOYAGE_BATCH_SIZE", 16)
 
     # --- DeepSeek LLM ---
     deepseek_base_url: str = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com")

@@ -48,3 +48,6 @@ rag/.env
 rag/_smoke_qdrant_db/
 rag/__pycache__/
 rag/**/__pycache__/
+rag/deploy_log.txt
+rag/deploy_resume_log.txt
+rag/scripts/_*.py

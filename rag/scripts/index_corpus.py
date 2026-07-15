@@ -48,6 +48,12 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--dry-run", action="store_true",
                    help="Count tokens/estimate cost without calling Voyage or writing to Qdrant")
     p.add_argument("--limit", type=int, default=None, help="Index only the first N chunks (smoke testing)")
+    p.add_argument(
+        "--sleep-between-batches",
+        type=float,
+        default=2.0,
+        help="Seconds to wait between batches (helps avoid Voyage rate limits)",
+    )
     return p.parse_args()
 
 
@@ -97,6 +103,8 @@ def main() -> int:
             errors += len(batch_chunks)
             logger.exception("Failed to index batch starting at %d", start)
         logger.info("Progress: %d/%d indexed, %d errors", indexed, len(chunks), errors)
+        if args.sleep_between_batches > 0 and start + args.batch_size < len(chunks):
+            time.sleep(args.sleep_between_batches)
 
     elapsed = time.time() - t0
     logger.info(
