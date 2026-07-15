@@ -39,10 +39,13 @@ if not rows:
     raise SystemExit(0)
 
 def fnum(value):
-    value = (value or "").strip()
+    value = (value or "").strip().rstrip("%")
     if not value:
         return None
-    return float(value)
+    try:
+        return float(value)
+    except ValueError:
+        return None
 
 def summarize(values):
     if not values:
