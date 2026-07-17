@@ -55,29 +55,158 @@ alwaysApply: true
 
 ## 🔧 Текущая инфраструктура
 
-### Стек
-- **Сбор писем**: Python + IMAP (Яндекс Почта).
-- **Обработка**: N8N Cloud (в планах) + DeepSeek API
-- **Интерфейс**: Google sheets. Менеджер кладет письмо клиента в таблицу, агент забирает, кладет в таблицу ответ. / N8N workflow.
+### Два продукта (не путать)
+
+| Продукт | Назначение | Интерфейс |
+|---|---|---|
+| **Mail copilot** (фаза 2) | Сгенерировать следующее письмо клиенту по истории диалога | Google Sheets / n8n Cloud |
+| **RAG-ассистент** (фаза 3) | Ответить менеджеру на внутренний вопрос по прецедентам и FAQ | Telegram-бот |
+
+### Стек Mail copilot
+- **Сбор писем**: Python + IMAP (Яндекс Почта, read-only).
+- **Обработка**: n8n Cloud + DeepSeek API.
+- **Интерфейс**: Google Sheets — менеджер кладёт письмо клиента в таблицу, агент возвращает черновик ответа.
+
+### Стек RAG (зафиксирован, не менять без согласования)
+- **Оркестрация**: LangChain (Python), код в папке `rag/`.
+- **Эмбеддинги**: Voyage AI, модель `voyage-4-large` (`input_type=document` при индексации, `query` при поиске).
+- **LLM**: DeepSeek API, модель `deepseek-v4-flash` (OpenAI-совместимый эндпоинт `https://api.deepseek.com`).
+- **Векторная БД**: self-hosted Qdrant, коллекция `movetorussia_kb`.
+- **Интерфейс**: Telegram-бот (aiogram), `rag/bot/telegram_bot.py`.
+- **Продакшен**: VPS `207.244.254.188`, изолированная папка `/opt/movetorussia/rag` (не трогать `/opt/movetorussia/docker_api` и `twitter_agent`).
+
+---
+
+## 📂 Пайплайн данных: от почты до RAG
+
+Цепочка артефактов (каждый шаг — отдельный скрипт, данные в файлах, без БД на этапе подготовки):
+
+```
+IMAP (3 ящика менеджеров)
+  └─ scripts/export_manager_mailboxes.py
+       └─ mailbox_export/threads/*.txt          # сырые переписки по клиентам
+       └─ mailbox_export/all_messages.jsonl     # все письма построчно (fallback)
+
+  └─ scripts/clean_thread_quotes.py
+       └─ mailbox_export_clean/threads/*.txt     # без вложенных цитат
+
+  └─ prepare_rag_corpus.py                       # НЕ переписывать без явного запроса
+       └─ mailbox_export_RAG/threads/*.json     # письма + группировка в exchanges
+       └─ mailbox_export_RAG/corpus.jsonl       # плоские chunks для индексации (~5935)
+       └─ mailbox_export_RAG/prepare_report.txt # отчёт по чистке
+
+  └─ scripts/build_faq_llm.py                    # FAQ через DeepSeek (предпочтительно)
+       └─ knowledge_base/v4/client_faq_review.csv  # ~224 отревьюированных Q→A (для RAG)
+
+  └─ rag/scripts/index_corpus.py                 # переиспользуемый модуль индексации
+       └─ Qdrant movetorussia_kb                 # векторы + полный payload метаданных
+```
+
+### Выгрузка писем (`scripts/export_manager_mailboxes.py`)
+- Read-only IMAP из ящиков **e.novik**, **a.antonova**, **n.perry** (@arkvostok.com).
+- Берёт все исходящие (Sent) + прочитанные входящие (INBOX, `\Seen`).
+- Группирует по клиенту (внешний email, не @arkvostok.com), сортирует хронологически.
+- Ключи в `.env`: `E_NOVIK_*`, `A_ANTONOVA_*`, `N_PERRY_*`.
+- Доп. артефакты: `index.csv`, `client_message_stats.csv`, `summary.json`.
+
+### Очистка (`scripts/clean_thread_quotes.py`)
+- Исходники в `mailbox_export/` **не трогает**.
+- Результат: `mailbox_export_clean/threads/*.txt` — вырезаны вложенные цитаты предыдущих писем.
+
+### Подготовка RAG-корпуса (`prepare_rag_corpus.py`)
+- Парсит `.txt` формата `[РОЛЬ] (email) / Тема / От / Кому / Дата / ----- тело`.
+- Чистит хвосты цитат, подписи менеджеров (MovetoRussia.com), нормализует пробелы.
+- Группирует письма в **exchanges** (вопрос клиента + ответ менеджера) — единица эмбеддинга, не отдельное письмо.
+- `low_signal` — флаг малоинформативного обмена (не удаляется, при retrieval не приоритизируется).
+- Опционально `--distill`: компактная «карточка знания» через DeepSeek → поле `distilled`.
+- **Готовые данные уже отработаны** — не перегенерировать без явного запроса.
+
+### Формат `corpus.jsonl` (один JSON на строку)
+Поля chunk'а: `id`, `thread_id`, `client_email`, `manager_emails`, `subject`, `date_start`, `date_end`, `language`, `low_signal`, `word_count`, `text`, `distilled`, `source` (`mailbox_thread`).
+Полный thread с деревом писем: `mailbox_export_RAG/threads/<thread_id>.json`.
+
+---
+
+## 📚 База знаний и FAQ
+
+### База знаний (`knowledge_base/`)
+- **`scripts/build_knowledge_base.py`** — markdown-инструкция для агента (`movetorussia_agent_kb.md`): детерминированная статистика + LLM map-reduce по диалогам.
+- **`scripts/build_kb_versions.py`** — 4 версии (v1–v4) по разметке заказчика в `knowledge_base/clients_stats/Clients_stats_vN.csv` (Filter=1 / без фильтра для v4).
+- Актуальная рабочая версия: **`knowledge_base/v4/`**.
+
+### FAQ-каталог
+- **`scripts/build_faq_llm.py`** — основной пайплайн: LLM извлекает пары Q→A из диалогов, объединяет похожие, формирует канонический FAQ на EN.
+- **`scripts/build_faq_catalog.py`** — legacy эвристический пайплайн (не использовать для новых задач).
+- Для RAG индексируется **`knowledge_base/v4/client_faq_review.csv`** (`;`-разделитель, ~224 группы).
+  Альтернативы: `client_faq_frequent.csv` (только frequency≥2), `client_faq_quality_once.csv` (редкие 1×).
+- В Qdrant FAQ попадает со `source="faq_catalog"`, текст: `Q: {question}\nA: {answer}`.
+
+---
+
+## 🤖 RAG-ассистент (`rag/`)
+
+### Структура
+```
+rag/
+├── mtr_rag/          # библиотека: config, loaders, embeddings, qdrant_store, retriever, chain
+├── scripts/
+│   ├── index_corpus.py   # CLI индексации (--recreate, --dry-run, --batch-size, --no-faq, --limit)
+│   └── smoke_test.py     # тест на 10–20 chunks
+├── bot/
+│   └── telegram_bot.py   # менеджер пишет вопрос → ответ + список источников
+├── docker-compose.yml    # только Qdrant (localhost:6333)
+└── requirements.txt
+```
+
+### Индексация (`rag/scripts/index_corpus.py`)
+- Читает `corpus.jsonl` + FAQ CSV, батчами эмбеддит через Voyage, пишет в Qdrant с полным payload (фильтрация по `source`, дате, менеджеру, `low_signal`).
+- Retry/backoff на 429/500/502/503.
+- `--dry-run` — оценка токенов/стоимости без API-вызовов.
+- Скрипт **отделён от бота** — для встраивания в n8n при периодической догрузке новых писем.
+
+### Retrieval + генерация (`mtr_rag/chain.py`)
+- Вопрос менеджера → Voyage embed (query) → Qdrant top-k (дефолт 6) → контекст с `thread_id`/`subject`/датой → DeepSeek.
+- Промпт: только факты из контекста, явно сообщать о недостаточности данных, не выдумывать.
+- `low_signal` chunks индексируются, но по умолчанию не фильтруются (опция `exclude_low_signal=True`).
+
+### Telegram-бот
+- Команды: `/start`, `/help`, `/topk N`.
+- Любой текст → RAG-ответ + краткий список источников (`thread_id`, `subject`).
+- Ошибки API — понятное сообщение менеджеру, не падать.
+- Конфиг: `rag/.env` (см. `rag/.env.example`): `TELEGRAM_BOT_TOKEN`, `VOYAGE_API_KEY`, `DEEPSEEK_API_KEY`, `QDRANT_URL`, `QDRANT_COLLECTION`.
+
+### Запуск (локально или на VPS)
+```bash
+cd rag && pip install -r requirements.txt
+python scripts/index_corpus.py --dry-run
+python scripts/index_corpus.py --recreate
+python bot/telegram_bot.py
+```
+
+### VPS-деплой
+- Путь: `/opt/movetorussia/rag`, данные: `data/corpus.jsonl`, `data/client_faq_review.csv`.
+- Qdrant: Docker-контейнер `movetorussia_qdrant`, порт `127.0.0.1:6333`.
+- Бот: systemd `movetorussia-rag-bot`.
+- Мониторинг индексации: `tail -f /opt/movetorussia/rag/index.log`.
+- **Voyage rate limits**: без payment method в billing — 3 RPM / 10K TPM; для полной индексации ~6000 chunks нужен payment method или терпение (~5–6 ч).
 
 ---
 
 ## 🚀 Фазы реализации
 
-### ✅ Фаза 1 Завершено — Тестирование промптов
-- Собери примеры реальных диалогов (1.txt – 5.txt).
-- Удаляй последнее письмо менеджера → тестируй разные LLM на одних и тех же диалогах.
-- Сравни результаты и закрепи лучший стиль в промпте.
-- Цель: найти идеальный баланс эмпатия ↔ профессионализм.
+### ✅ Фаза 1 — Тестирование промптов
+- Примеры реальных диалогов (1.txt – 5.txt), сравнение LLM, закрепление стиля в промпте.
 
-### 📋 Фаза 2 (активная) — MVP на N8N Cloud
-- Workflow: Яндекс Почта → N8N → DeepSeek → ответ менеджеру.
-- Отчет менеджеру: Письмо, которое ИИ написало в ответ на контакт с клиентом.
+### 📋 Фаза 2 (активная) — Mail copilot на n8n Cloud
+- Workflow: Яндекс Почта → n8n → DeepSeek → черновик ответа менеджеру.
+- Вход: история переписки; выход: письмо клиенту на английском.
 
-### 🔗 Фаза 3 (видение) — Полноценный агент
-- Vector DB (RAG) для долгосрочной памяти.
-- CRM интеграция (EnvyCRM).
-- Интерактивный Telegram бот или веб-интерфейс.
+### 🔗 Фаза 3 (в работе) — RAG-ассистент для менеджеров
+- ✅ Подготовка корпуса (`corpus.jsonl`, FAQ).
+- ✅ Пайплайн индексации + retrieval + Telegram-бот (`rag/`).
+- ✅ Деплой на VPS.
+- 🔲 Инкрементальная догрузка новых писем через n8n → `index_corpus.py`.
+- 🔲 CRM-интеграция (EnvyCRM).
 
 ---
 
@@ -86,16 +215,23 @@ alwaysApply: true
 ### Скрипты обработки почты
 - Сохраняй переписки в файлы (txt / json) с чистым хронологическим порядком.
 - Разделяй письма ясными строками.
-- Пока **без баз данных** — максимум просто файлы.
+- Пока **без баз данных** на этапе подготовки — максимум просто файлы.
+
+### RAG
+- Весь код RAG — **только в папке `rag/`**.
+- **Не переписывай** `prepare_rag_corpus.py` и готовые данные в `mailbox_export_RAG/` без явного запроса.
+- Индексация — отдельный переиспользуемый скрипт (`rag/scripts/index_corpus.py`), не внутри бота.
+- Никаких захардкоженных API-ключей — только `.env` / переменные окружения.
 
 ### Промпты для LLM
-- Держи их **коротко** (~200–300 слов).
-- **На русском** инструкции → **на английском** выход.
+- Держи их **коротко** (~200–300 слов) для mail copilot; RAG system prompt — в `rag/mtr_rag/chain.py`.
+- **На русском** инструкции → **на английском** выход (для писем клиентам).
 - Указывай примеры идеальных ответов (few-shot).
 - Проверяй на галлюцинациях (ссылки, факты).
 
 ### Тестирование
-- Используй **несколько LLM** одновременно (DeepSeek, Claude, GPT).
+- Используй **несколько LLM** одновременно (DeepSeek, Claude, GPT) для mail copilot.
+- RAG: `rag/scripts/smoke_test.py` на 10–20 chunks перед объявлением готовности.
 - Сравни по метрикам: человечность, релевантность, соблюдение правил.
 - Логируй результаты для анализа.
 
