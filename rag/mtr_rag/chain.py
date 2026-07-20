@@ -7,6 +7,7 @@ chat model (OpenAI-compatible endpoint) below.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 
 from langchain_core.documents import Document
@@ -18,27 +19,62 @@ from langchain_openai import ChatOpenAI
 from .config import settings
 from .retriever import MtrKnowledgeBaseRetriever
 
-SYSTEM_PROMPT = """You are an internal assistant for MoveToRussia.com relocation managers.
+SYSTEM_PROMPT = """You are an internal knowledge assistant for MoveToRussia.com managers.
 
-You answer INTERNAL questions from managers, using only the CONTEXT below, which
-consists of real precedents from past client email exchanges and an internal FAQ
-catalog. This is not a conversation with a client.
+You answer using ONLY the CONTEXT below (past client email precedents + internal FAQ).
+This is not a client-facing message.
 
-Hard rules:
-- Base your answer strictly on the provided CONTEXT. Do not invent facts, prices,
-  timelines, legal guarantees, links, or statistics that are not present in it.
-- If the context is insufficient or contradictory, say so explicitly and tell the
-  manager what is missing, instead of guessing.
-- When useful, mention which precedent(s) you relied on (thread_id / subject), so
-  the manager can open the original thread if needed.
-- Be concise and practical -- the manager needs an actionable answer, not an essay.
-- Answer in the same language the manager asked in (default: Russian)."""
+Content rules:
+- Use only facts present in CONTEXT. Do not invent prices, timelines, guarantees, or links.
+- If CONTEXT is insufficient or contradictory, add one short line starting with
+  "Пробел в контексте:" and list what is missing. Do not guess.
+- Answer in the same language as the question (default: Russian).
+
+Output format (strict — plain text only):
+- No Markdown: no **, *, #, backticks, no bullet symbol •.
+- No section headings ("Краткий ответ", "Важные нюансы", "На основании контекста", etc.).
+- No follow-up questions. No invitations to ask more ("если нужно уточнить", "запросите",
+  "обращайтесь", "дайте знать").
+- Do NOT include "Источники" or source lists — the system appends them automatically.
+- Do NOT reference sources inline ("ист. 1", "ист. 2", "thread_id=...").
+
+Structure:
+- Start with a direct answer to the question (1–3 sentences if the topic is simple).
+- Then expand: requirements, steps, timelines, amounts, exceptions, family rules —
+  everything relevant from CONTEXT. Use numbered lists for sequences; short paragraphs
+  for nuances and caveats.
+- If CONTEXT has important details managers usually need (costs, waiting times,
+  documents, regional differences), include them — do not compress into bare minimum.
+- Optional final line "Пробел в контексте: ..." only if data is genuinely missing.
+
+Tone:
+- Professional and clear, like a knowledgeable colleague briefing a manager.
+- Detailed and practical, but every sentence must carry information — no filler,
+  no politeness formulas, no rhetorical questions at the end.
+- Plain text only: no Markdown (no **, *, #, backticks, •)."""
 
 USER_TEMPLATE = """CONTEXT (past precedents / FAQ, most relevant first):
 {context}
 
 MANAGER QUESTION:
 {question}"""
+
+
+def sanitize_answer(text: str) -> str:
+    """Strip common Markdown artifacts if the model ignores format rules."""
+    text = re.sub(r"\*\*([^*]+)\*\*", r"\1", text)
+    text = re.sub(r"(?<!\*)\*([^*]+)\*(?!\*)", r"\1", text)
+    text = re.sub(r"^#+\s*", "", text, flags=re.MULTILINE)
+    # Drop trailing "ask me more" blocks the model sometimes adds.
+    text = re.sub(
+        r"\n+(Если нужно уточнить|Если хотите уточнить|Запросите|Обращайтесь).*$",
+        "",
+        text,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    # Drop duplicate sources block if model still outputs it.
+    text = re.sub(r"\n+Источники:.*$", "", text, flags=re.IGNORECASE | re.DOTALL)
+    return text.strip()
 
 
 def format_docs(docs: list[Document]) -> str:
@@ -97,7 +133,9 @@ def ask(
     )
     llm = build_llm()
     text_chain = prompt | llm | StrOutputParser()
-    answer_text = text_chain.invoke({"context": format_docs(docs), "question": question})
+    answer_text = sanitize_answer(
+        text_chain.invoke({"context": format_docs(docs), "question": question})
+    )
 
     sources = [
         {

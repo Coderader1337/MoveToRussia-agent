@@ -18,8 +18,6 @@ import sys
 from pathlib import Path
 
 from aiogram import Bot, Dispatcher, F
-from aiogram.client.default import DefaultBotProperties
-from aiogram.enums import ParseMode
 from aiogram.filters import Command, CommandStart
 from aiogram.types import Message
 
@@ -100,8 +98,7 @@ async def handle_question(message: Message) -> None:
         )
         return
 
-    reply = result.answer.strip() + "\n" + format_sources(result.sources)
-    # Telegram message limit is 4096 chars.
+    reply = result.answer.strip() + "\n\n" + format_sources(result.sources)
     await message.answer(reply[:4096])
 
 
@@ -117,10 +114,7 @@ def build_dispatcher() -> Dispatcher:
 async def main() -> None:
     if not settings.telegram_bot_token:
         raise SystemExit("TELEGRAM_BOT_TOKEN is not set (see rag/.env.example)")
-    bot = Bot(
-        token=settings.telegram_bot_token,
-        default=DefaultBotProperties(parse_mode=ParseMode.HTML),
-    )
+    bot = Bot(token=settings.telegram_bot_token)
     dp = build_dispatcher()
     logger.info("Bot starting, collection=%s", settings.qdrant_collection)
     await dp.start_polling(bot)
