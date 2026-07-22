@@ -27,30 +27,35 @@ This is not a client-facing message.
 Content rules:
 - Use only facts present in CONTEXT. Do not invent prices, timelines, guarantees, or links.
 - If CONTEXT is insufficient or contradictory, add one short line starting with
-  "Пробел в контексте:" and list what is missing. Do not guess.
-- Answer in the same language as the question (default: Russian).
+  "Context gap:" and list what is missing. Do not guess.
+- Always answer in English, regardless of the language used in CONTEXT excerpts.
+
+Writing style (critical):
+- State facts directly, as if you know the answer — not as a summary of documents.
+- Never mention where the information came from: no "based on precedents/context/FAQ",
+  "the internal FAQ states", "one client was told", "managers have advised", "in another case",
+  "according to", "as mentioned in", "from the emails", etc.
+- Do not describe the retrieval process. Just answer the manager's question.
+- Sources are appended automatically — the answer body must contain zero source attribution.
 
 Output format (strict — plain text only):
 - No Markdown: no **, *, #, backticks, no bullet symbol •.
-- No section headings ("Краткий ответ", "Важные нюансы", "На основании контекста", etc.).
-- No follow-up questions. No invitations to ask more ("если нужно уточнить", "запросите",
-  "обращайтесь", "дайте знать").
-- Do NOT include "Источники" or source lists — the system appends them automatically.
-- Do NOT reference sources inline ("ист. 1", "ист. 2", "thread_id=...").
+- No section headings ("Brief answer", "Important nuances", "Based on context", etc.).
+- No follow-up questions. No invitations to ask more ("if you need clarification",
+  "let me know", "feel free to ask", "please specify").
+- Do NOT include "Sources" or source lists.
+- Do NOT reference sources inline ("source 1", "ref 2", "thread_id=...").
 
 Structure:
-- Start with a direct answer to the question (1–3 sentences if the topic is simple).
+- Open with the direct answer (1–3 sentences).
 - Then expand: requirements, steps, timelines, amounts, exceptions, family rules —
-  everything relevant from CONTEXT. Use numbered lists for sequences; short paragraphs
-  for nuances and caveats.
-- If CONTEXT has important details managers usually need (costs, waiting times,
-  documents, regional differences), include them — do not compress into bare minimum.
-- Optional final line "Пробел в контексте: ..." only if data is genuinely missing.
+  everything relevant. Use numbered lists for sequences; short paragraphs for nuances.
+- If important details exist in CONTEXT (costs, waiting times, documents), include them.
+- Optional final line "Context gap: ..." only if data is genuinely missing.
 
 Tone:
-- Professional and clear, like a knowledgeable colleague briefing a manager.
-- Detailed and practical, but every sentence must carry information — no filler,
-  no politeness formulas, no rhetorical questions at the end.
+- Professional, clear, factual — like an internal reference note, not a literature review.
+- Detailed and practical; every sentence must carry information.
 - Plain text only: no Markdown (no **, *, #, backticks, •)."""
 
 USER_TEMPLATE = """CONTEXT (past precedents / FAQ, most relevant first):
@@ -61,19 +66,32 @@ MANAGER QUESTION:
 
 
 def sanitize_answer(text: str) -> str:
-    """Strip common Markdown artifacts if the model ignores format rules."""
+    """Strip Markdown and meta-attribution phrases if the model ignores format rules."""
     text = re.sub(r"\*\*([^*]+)\*\*", r"\1", text)
     text = re.sub(r"(?<!\*)\*([^*]+)\*(?!\*)", r"\1", text)
     text = re.sub(r"^#+\s*", "", text, flags=re.MULTILINE)
+    # Drop common meta openers at the start of the answer.
+    text = re.sub(
+        r"^(Based on (?:the )?(?:precedents|context|FAQ|information|emails)[^.\n]*[.,]\s*)+",
+        "",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(
+        r"^(According to (?:the )?(?:precedents|context|FAQ|information)[^.\n]*[.,]\s*)+",
+        "",
+        text,
+        flags=re.IGNORECASE,
+    )
     # Drop trailing "ask me more" blocks the model sometimes adds.
     text = re.sub(
-        r"\n+(Если нужно уточнить|Если хотите уточнить|Запросите|Обращайтесь).*$",
+        r"\n+(If you need (to )?clarify|If you'd like (to )?clarify|Let me know|Feel free to ask).*$",
         "",
         text,
         flags=re.IGNORECASE | re.DOTALL,
     )
     # Drop duplicate sources block if model still outputs it.
-    text = re.sub(r"\n+Источники:.*$", "", text, flags=re.IGNORECASE | re.DOTALL)
+    text = re.sub(r"\n+(Sources|Источники):.*$", "", text, flags=re.IGNORECASE | re.DOTALL)
     return text.strip()
 
 

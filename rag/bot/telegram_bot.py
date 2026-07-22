@@ -30,18 +30,18 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 logger = logging.getLogger("mtr_rag_bot")
 
 WELCOME_TEXT = (
-    "Привет! Я ассистент по базе знаний MoveToRussia.\n"
-    "Задайте вопрос по прецедентам из переписки с клиентами или по FAQ, "
-    "и я отвечу на основе реальных случаев.\n\n"
-    "Например: «Какая стоимость White Gloves пакета?» или "
-    "«Что отвечали клиенту про апостиль документов?»"
+    "Hi! I'm the MoveToRussia knowledge assistant.\n"
+    "Ask a question about past client email precedents or the internal FAQ, "
+    "and I'll answer based on real cases.\n\n"
+    "Examples: \"What does the White Gloves package cost?\" or "
+    "\"What did we tell clients about document apostille?\""
 )
 
 HELP_TEXT = (
-    "Просто напишите вопрос обычным текстом.\n"
-    "/topk N — задать число прецедентов для поиска (по умолчанию "
+    "Send your question as plain text (English only).\n"
+    "/topk N — set number of precedents to retrieve (default "
     f"{settings.retrieval_top_k})\n"
-    "/help — это сообщение"
+    "/help — this message"
 )
 
 router_top_k: dict[int, int] = {}
@@ -49,8 +49,8 @@ router_top_k: dict[int, int] = {}
 
 def format_sources(sources: list[dict]) -> str:
     if not sources:
-        return "Источники не найдены."
-    lines = ["\nИсточники:"]
+        return "No sources found."
+    lines = ["\nSources:"]
     for s in sources:
         bits = [f"thread_id={s.get('thread_id')}"]
         if s.get("subject"):
@@ -72,11 +72,11 @@ async def handle_help(message: Message) -> None:
 async def handle_topk(message: Message) -> None:
     parts = (message.text or "").split()
     if len(parts) != 2 or not parts[1].isdigit():
-        await message.answer("Используйте: /topk 8")
+        await message.answer("Usage: /topk 8")
         return
     k = max(1, min(20, int(parts[1])))
     router_top_k[message.from_user.id] = k
-    await message.answer(f"Ок, буду искать top-{k} прецедентов.")
+    await message.answer(f"OK, will retrieve top-{k} precedents.")
 
 
 async def handle_question(message: Message) -> None:
@@ -92,9 +92,9 @@ async def handle_question(message: Message) -> None:
     except Exception as exc:  # Voyage/Qdrant/DeepSeek unavailable, etc.
         logger.exception("RAG chain failed for question: %s", question)
         await message.answer(
-            "Не получилось получить ответ — сервис поиска или генерации сейчас "
-            "недоступен. Попробуйте ещё раз через минуту.\n"
-            f"(техническая причина: {type(exc).__name__})"
+            "Could not get an answer — search or generation service is temporarily "
+            "unavailable. Please try again in a minute.\n"
+            f"(technical reason: {type(exc).__name__})"
         )
         return
 
