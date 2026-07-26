@@ -65,5 +65,13 @@ class Settings:
     # --- Retrieval defaults ---
     retrieval_top_k: int = _get_int("MTR_RETRIEVAL_TOP_K", 6)
 
+    # --- Telegram bot access control ---
+    telegram_whitelist_path: Path = Path(
+        os.getenv(
+            "MTR_TELEGRAM_WHITELIST_PATH",
+            str(_RAG_DIR / "bot" / "allowed_users.json"),
+        )
+    )
+
 
 settings = Settings()

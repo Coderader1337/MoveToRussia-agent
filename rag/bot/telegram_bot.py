@@ -17,14 +17,17 @@ import logging
 import sys
 from pathlib import Path
 
-from aiogram import Bot, Dispatcher, F
+from typing import Any, Awaitable, Callable
+
+from aiogram import BaseMiddleware, Bot, Dispatcher, F
 from aiogram.filters import Command, CommandStart
-from aiogram.types import Message
+from aiogram.types import Message, TelegramObject
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from mtr_rag.chain import ask  # noqa: E402
 from mtr_rag.config import settings  # noqa: E402
+from mtr_rag.whitelist import is_user_allowed, load_allowed_user_ids  # noqa: E402
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger("mtr_rag_bot")
@@ -44,7 +47,31 @@ HELP_TEXT = (
     "/help — this message"
 )
 
+ACCESS_DENIED_TEXT = (
+    "Sorry, this bot is for authorized MovetoRussia team members only. "
+    "If you need access, please contact your manager."
+)
+
 router_top_k: dict[int, int] = {}
+
+
+class WhitelistMiddleware(BaseMiddleware):
+    async def __call__(
+        self,
+        handler: Callable[[TelegramObject, dict[str, Any]], Awaitable[Any]],
+        event: TelegramObject,
+        data: dict[str, Any],
+    ) -> Any:
+        if isinstance(event, Message) and event.from_user:
+            if not is_user_allowed(event.from_user.id):
+                logger.warning(
+                    "Access denied for user_id=%s username=@%s",
+                    event.from_user.id,
+                    event.from_user.username,
+                )
+                await event.answer(ACCESS_DENIED_TEXT)
+                return None
+        return await handler(event, data)
 
 
 def format_sources(sources: list[dict]) -> str:
@@ -104,6 +131,7 @@ async def handle_question(message: Message) -> None:
 
 def build_dispatcher() -> Dispatcher:
     dp = Dispatcher()
+    dp.message.middleware(WhitelistMiddleware())
     dp.message.register(handle_start, CommandStart())
     dp.message.register(handle_help, Command("help"))
     dp.message.register(handle_topk, Command("topk"))
@@ -114,9 +142,14 @@ def build_dispatcher() -> Dispatcher:
 async def main() -> None:
     if not settings.telegram_bot_token:
         raise SystemExit("TELEGRAM_BOT_TOKEN is not set (see rag/.env.example)")
+    allowed = load_allowed_user_ids()
     bot = Bot(token=settings.telegram_bot_token)
     dp = build_dispatcher()
-    logger.info("Bot starting, collection=%s", settings.qdrant_collection)
+    logger.info(
+        "Bot starting, collection=%s, whitelist=%d users",
+        settings.qdrant_collection,
+        len(allowed),
+    )
     await dp.start_polling(bot)
 
 
