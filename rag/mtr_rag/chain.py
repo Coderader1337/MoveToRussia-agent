@@ -1,8 +1,7 @@
-"""Retrieval-augmented answer chain: question -> Qdrant top-k -> DeepSeek answer.
+"""Retrieval-augmented email drafting: question -> Qdrant top-k -> DeepSeek client email.
 
-Built with LangChain LCEL (RunnableParallel/RunnableLambda + ChatPromptTemplate)
-so it composes cleanly with the retriever in retriever.py and the DeepSeek
-chat model (OpenAI-compatible endpoint) below.
+Retrieval is unchanged (Voyage + Qdrant). Generation prompt adds mail-writing
+instructions and communication principles on top of retrieved CONTEXT.
 """
 
 from __future__ import annotations
@@ -17,60 +16,15 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
 
 from .config import settings
+from .mail_writing_prompt import USER_TEMPLATE, build_system_prompt, load_communication_principles
 from .retriever import MtrKnowledgeBaseRetriever
-
-SYSTEM_PROMPT = """You are an internal knowledge assistant for MoveToRussia.com managers.
-
-You answer using ONLY the CONTEXT below (past client email precedents + internal FAQ).
-This is not a client-facing message.
-
-Content rules:
-- Use only facts present in CONTEXT. Do not invent prices, timelines, guarantees, or links.
-- If CONTEXT is insufficient or contradictory, add one short line starting with
-  "Context gap:" and list what is missing. Do not guess.
-- Always answer in English, regardless of the language used in CONTEXT excerpts.
-
-Writing style (critical):
-- State facts directly, as if you know the answer — not as a summary of documents.
-- Never mention where the information came from: no "based on precedents/context/FAQ",
-  "the internal FAQ states", "one client was told", "managers have advised", "in another case",
-  "according to", "as mentioned in", "from the emails", etc.
-- Do not describe the retrieval process. Just answer the manager's question.
-- Sources are appended automatically — the answer body must contain zero source attribution.
-
-Output format (strict — plain text only):
-- No Markdown: no **, *, #, backticks, no bullet symbol •.
-- No section headings ("Brief answer", "Important nuances", "Based on context", etc.).
-- No follow-up questions. No invitations to ask more ("if you need clarification",
-  "let me know", "feel free to ask", "please specify").
-- Do NOT include "Sources" or source lists.
-- Do NOT reference sources inline ("source 1", "ref 2", "thread_id=...").
-
-Structure:
-- Open with the direct answer (1–3 sentences).
-- Then expand: requirements, steps, timelines, amounts, exceptions, family rules —
-  everything relevant. Use numbered lists for sequences; short paragraphs for nuances.
-- If important details exist in CONTEXT (costs, waiting times, documents), include them.
-- Optional final line "Context gap: ..." only if data is genuinely missing.
-
-Tone:
-- Professional, clear, factual — like an internal reference note, not a literature review.
-- Detailed and practical; every sentence must carry information.
-- Plain text only: no Markdown (no **, *, #, backticks, •)."""
-
-USER_TEMPLATE = """CONTEXT (past precedents / FAQ, most relevant first):
-{context}
-
-MANAGER QUESTION:
-{question}"""
 
 
 def sanitize_answer(text: str) -> str:
-    """Strip Markdown and meta-attribution phrases if the model ignores format rules."""
+    """Strip meta-attribution and accidental source blocks from client email drafts."""
     text = re.sub(r"\*\*([^*]+)\*\*", r"\1", text)
     text = re.sub(r"(?<!\*)\*([^*]+)\*(?!\*)", r"\1", text)
     text = re.sub(r"^#+\s*", "", text, flags=re.MULTILINE)
-    # Drop common meta openers at the start of the answer.
     text = re.sub(
         r"^(Based on (?:the )?(?:precedents|context|FAQ|information|emails)[^.\n]*[.,]\s*)+",
         "",
@@ -83,14 +37,6 @@ def sanitize_answer(text: str) -> str:
         text,
         flags=re.IGNORECASE,
     )
-    # Drop trailing "ask me more" blocks the model sometimes adds.
-    text = re.sub(
-        r"\n+(If you need (to )?clarify|If you'd like (to )?clarify|Let me know|Feel free to ask).*$",
-        "",
-        text,
-        flags=re.IGNORECASE | re.DOTALL,
-    )
-    # Drop duplicate sources block if model still outputs it.
     text = re.sub(r"\n+(Sources|Источники):.*$", "", text, flags=re.IGNORECASE | re.DOTALL)
     return text.strip()
 
@@ -134,7 +80,7 @@ def ask(
     manager_email: str | None = None,
     embedder: Embeddings | None = None,
 ) -> RagAnswer:
-    """Convenience helper: run retrieval + generation and return answer + sources."""
+    """Retrieve precedents + FAQ, then draft a client email for the manager."""
     retriever_kwargs = dict(
         top_k=top_k or settings.retrieval_top_k,
         source=source,
@@ -147,7 +93,7 @@ def ask(
     docs = retriever.invoke(question)
 
     prompt = ChatPromptTemplate.from_messages(
-        [("system", SYSTEM_PROMPT), ("human", USER_TEMPLATE)]
+        [("system", build_system_prompt()), ("human", USER_TEMPLATE)]
     )
     llm = build_llm()
     text_chain = prompt | llm | StrOutputParser()
@@ -166,3 +112,9 @@ def ask(
         for d in docs
     ]
     return RagAnswer(answer=answer_text, sources=sources)
+
+
+def warmup_prompt() -> None:
+    """Load communication principles at startup (fail fast if file missing)."""
+    load_communication_principles()
+    build_system_prompt()

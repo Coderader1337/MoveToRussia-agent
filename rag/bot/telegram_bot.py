@@ -1,13 +1,7 @@
-"""Telegram bot: managers ask questions, get RAG answers grounded in past precedents.
+"""Telegram bot: managers paste a client email, RAG finds precedents, bot drafts a reply.
 
-Framework choice: aiogram (vs python-telegram-bot) -- chosen because it is
-asyncio-native end to end (fits naturally with our async retrieval/LLM calls
-without extra thread pools), has a lighter router-based API for a single
-message-in/answer-out flow like this one, and was already available in this
-environment.
-
-Flow: manager sends any text message -> we run the RAG chain -> reply with the
-answer followed by a short "Sources" list (thread_id / subject / date).
+Flow: manager sends client email + optional instructions -> RAG retrieval ->
+DeepSeek drafts client-facing email -> reply with draft + Sources list.
 """
 
 from __future__ import annotations
@@ -25,7 +19,7 @@ from aiogram.types import Message, TelegramObject
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from mtr_rag.chain import ask  # noqa: E402
+from mtr_rag.chain import ask, warmup_prompt  # noqa: E402
 from mtr_rag.config import settings  # noqa: E402
 from mtr_rag.whitelist import is_user_allowed, load_allowed_user_ids  # noqa: E402
 
@@ -33,16 +27,19 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 logger = logging.getLogger("mtr_rag_bot")
 
 WELCOME_TEXT = (
-    "Hi! I'm the MoveToRussia knowledge assistant.\n"
-    "Ask a question about past client email precedents or the internal FAQ, "
-    "and I'll answer based on real cases.\n\n"
-    "Examples: \"What does the White Gloves package cost?\" or "
-    "\"What did we tell clients about document apostille?\""
+    "Hi! I'm the MoveToRussia email drafting assistant.\n\n"
+    "Paste the client's latest email and add any instructions — I'll draft "
+    "a reply using precedents from past cases and the internal FAQ.\n\n"
+    "Example:\n"
+    "Draft a reply. Clarify that work starts only after the retainer is paid.\n\n"
+    "Client email:\n"
+    "\"Hello, I would like to learn how you can help me relocate to Russia...\""
 )
 
 HELP_TEXT = (
-    "Send your question as plain text (English only).\n"
-    "/topk N — set number of precedents to retrieve (default "
+    "Paste the client's email and optional instructions (what to clarify, include, avoid).\n"
+    "You'll get a draft reply + a Sources list (precedents used).\n\n"
+    "/topk N — number of precedents to retrieve (default "
     f"{settings.retrieval_top_k})\n"
     "/help — this message"
 )
@@ -143,6 +140,7 @@ async def main() -> None:
     if not settings.telegram_bot_token:
         raise SystemExit("TELEGRAM_BOT_TOKEN is not set (see rag/.env.example)")
     allowed = load_allowed_user_ids()
+    warmup_prompt()
     bot = Bot(token=settings.telegram_bot_token)
     dp = build_dispatcher()
     logger.info(

@@ -29,6 +29,16 @@ def _get_float(name: str, default: float) -> float:
     return float(raw) if raw else default
 
 
+def _resolve_existing_file(env_name: str, *candidates: Path) -> Path:
+    override = os.getenv(env_name)
+    if override:
+        return Path(override)
+    for path in candidates:
+        if path.is_file():
+            return path
+    return candidates[0]
+
+
 @dataclass(frozen=True)
 class Settings:
     # --- API keys ---
@@ -71,6 +81,13 @@ class Settings:
             "MTR_TELEGRAM_WHITELIST_PATH",
             str(_RAG_DIR / "bot" / "allowed_users.json"),
         )
+    )
+
+    # --- Mail-writing prompt (communication principles file) ---
+    communication_principles_path: Path = _resolve_existing_file(
+        "MTR_COMMUNICATION_PRINCIPLES_PATH",
+        _RAG_DIR / "prompt_data" / "communication_principles.txt",
+        _REPO_ROOT / "prompts" / "communication_principles.txt",
     )
 
 
