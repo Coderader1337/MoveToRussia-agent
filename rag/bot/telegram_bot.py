@@ -71,7 +71,10 @@ RATING_PROMPT_TEXT = (
     "Please rate it from 1 (not useful) to 10 (very useful)."
 )
 
-RATING_THANKS_TEXT = "Thank you! Your rating ({rate}/10) has been recorded."
+RATING_THANKS_TEXT = (
+    "Thank you! Your rating ({rate}/10) has been recorded.\n\n"
+    "You can send your next request whenever you're ready."
+)
 
 
 def format_sources(sources: list[dict]) -> str:
