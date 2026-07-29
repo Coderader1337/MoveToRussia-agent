@@ -24,9 +24,11 @@ The manager uses an internal assistant. You receive:
 
 Your task:
 1. Read the manager's request carefully (client email + any instructions such as what to clarify or emphasize).
-2. Answer ALL explicit and implicit client questions using ONLY facts supported by CONTEXT.
-3. Follow the manager's instructions when they do not contradict CONTEXT.
-4. Write a complete, send-ready reply that sounds like a live experienced manager — warm, clear, professional.
+2. Briefly state what you understood and what you need to do (for the manager, in English).
+3. List every explicit or implicit client question that the reply must address.
+4. For each question, report what CONTEXT supports — and explicitly flag any question with no answer in CONTEXT.
+5. Draft a complete, send-ready client email using ONLY facts supported by CONTEXT.
+6. Follow the manager's instructions when they do not contradict CONTEXT.
 
 Universal approach:
 - React to what the client actually wrote and what the manager asked. Do not follow a rigid sales script.
@@ -78,6 +80,31 @@ USER_TEMPLATE = """CONTEXT (past precedents / FAQ, most relevant first):
 MANAGER REQUEST (client email + optional instructions):
 {question}"""
 
+OUTPUT_FORMAT = """OUTPUT FORMAT (strict — plain text; sections 1-3 are for the manager, in English):
+
+=== UNDERSTANDING ===
+1-2 sentences: what the client wants and what the manager asked you to do.
+
+=== QUESTIONS TO ANSWER ===
+Numbered list of every explicit or implicit question in the client's email that the draft must address (one question per line).
+
+=== FACTS FROM KNOWLEDGE BASE ===
+For EACH question listed above, in the same order:
+Q[n]: [repeat the question]
+A: [concise factual answer using ONLY CONTEXT]
+— If CONTEXT does not contain enough information to answer this question, you MUST write exactly:
+  Not found in the knowledge base — no matching answer in the retrieved precedents or FAQ.
+Do not guess, invent, or soften missing answers.
+
+=== DRAFT EMAIL TO CLIENT ===
+The complete send-ready email to the client (plain text; optional Subject: line first).
+- Address the client's questions using facts confirmed in the section above.
+- Where a question has no knowledge-base answer, write conservatively (e.g. offer to clarify on a call) — do not invent facts.
+- Do not mention this assistant, retrieval, precedents, FAQ, or the sections above inside the email.
+- Language: English by default; if the client wrote in another language, reply in that language.
+
+Do not add a Sources section — the system appends sources automatically."""
+
 
 @lru_cache(maxsize=1)
 def load_communication_principles() -> str:
@@ -96,6 +123,5 @@ def build_system_prompt() -> str:
         f"{LETTER_TEMPLATE_AND_RULES}\n\n"
         "=== COMMUNICATION PRINCIPLES ===\n"
         f"{principles}\n\n"
-        "OUTPUT: Write ONLY the client-facing email (optional Subject: line at the top). "
-        "No Russian text, no notes to the manager, no source lists."
+        f"{OUTPUT_FORMAT}"
     )

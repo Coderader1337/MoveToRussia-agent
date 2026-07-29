@@ -21,22 +21,10 @@ from .retriever import MtrKnowledgeBaseRetriever
 
 
 def sanitize_answer(text: str) -> str:
-    """Strip meta-attribution and accidental source blocks from client email drafts."""
+    """Light cleanup of the full manager-facing response (analysis + draft email)."""
     text = re.sub(r"\*\*([^*]+)\*\*", r"\1", text)
     text = re.sub(r"(?<!\*)\*([^*]+)\*(?!\*)", r"\1", text)
     text = re.sub(r"^#+\s*", "", text, flags=re.MULTILINE)
-    text = re.sub(
-        r"^(Based on (?:the )?(?:precedents|context|FAQ|information|emails)[^.\n]*[.,]\s*)+",
-        "",
-        text,
-        flags=re.IGNORECASE,
-    )
-    text = re.sub(
-        r"^(According to (?:the )?(?:precedents|context|FAQ|information)[^.\n]*[.,]\s*)+",
-        "",
-        text,
-        flags=re.IGNORECASE,
-    )
     text = re.sub(r"\n+(Sources|Источники):.*$", "", text, flags=re.IGNORECASE | re.DOTALL)
     return text.strip()
 

@@ -60,7 +60,8 @@ WELCOME_TEXT = (
 
 HELP_TEXT = (
     "Paste the client's email and optional instructions (what to clarify, include, avoid).\n"
-    "You'll get a draft reply + a Sources list (precedents used).\n\n"
+    "You'll get: brief analysis, client questions, facts from the knowledge base, "
+    "a draft reply, and a Sources list.\n\n"
     "/topk N — number of precedents to retrieve (default "
     f"{settings.retrieval_top_k})\n"
     "/help — this message"
@@ -97,6 +98,22 @@ def build_rating_keyboard() -> InlineKeyboardMarkup:
         for i in range(1, 11)
     ]
     return InlineKeyboardMarkup(inline_keyboard=[buttons[:5], buttons[5:]])
+
+
+async def send_text_chunks(message: Message, text: str, *, chunk_size: int = 4096) -> None:
+    """Send long bot replies in multiple Telegram messages."""
+    remaining = text.strip()
+    while remaining:
+        if len(remaining) <= chunk_size:
+            await message.answer(remaining)
+            return
+        split_at = remaining.rfind("\n\n", 0, chunk_size)
+        if split_at <= 0:
+            split_at = remaining.rfind("\n", 0, chunk_size)
+        if split_at <= 0:
+            split_at = chunk_size
+        await message.answer(remaining[:split_at].strip())
+        remaining = remaining[split_at:].lstrip()
 
 
 async def handle_start(message: Message) -> None:
@@ -138,7 +155,7 @@ async def handle_question(message: Message, state: FSMContext) -> None:
 
     answer_text = result.answer.strip()
     reply = answer_text + "\n\n" + format_sources(result.sources)
-    await message.answer(reply[:4096])
+    await send_text_chunks(message, reply)
 
     await state.set_state(BotStates.awaiting_rating)
     await state.update_data(
