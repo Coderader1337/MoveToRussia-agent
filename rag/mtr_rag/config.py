@@ -83,6 +83,14 @@ class Settings:
         )
     )
 
+    # --- Telegram bot usage stats (CSV, one row per rated request) ---
+    stats_csv_path: Path = Path(
+        os.getenv("MTR_STATS_CSV_PATH", str(_RAG_DIR / "data" / "usage_stats.csv"))
+    )
+
+    # Optional Redis for FSM when running multiple bot replicas (empty = in-memory).
+    redis_url: str = os.getenv("REDIS_URL", "")
+
     # --- Mail-writing prompt (communication principles file) ---
     communication_principles_path: Path = _resolve_existing_file(
         "MTR_COMMUNICATION_PRINCIPLES_PATH",
