@@ -26,6 +26,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from mtr_rag.chain import ask, warmup_prompt  # noqa: E402
 from mtr_rag.config import settings  # noqa: E402
+from mtr_rag.mail_writing_prompt import DRAFT_SECTION_MARKER  # noqa: E402
 from mtr_rag.whitelist import load_allowed_user_ids  # noqa: E402
 
 from bot.middleware import (  # noqa: E402
@@ -100,6 +101,33 @@ def build_rating_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[buttons[:5], buttons[5:]])
 
 
+def split_answer_blocks(answer_text: str) -> tuple[str, str]:
+    """Split LLM output into analysis (part 1) and draft email block (part 2)."""
+    idx = answer_text.find(DRAFT_SECTION_MARKER)
+    if idx == -1:
+        lowered = answer_text.lower()
+        alt = DRAFT_SECTION_MARKER.lower()
+        idx = lowered.find(alt)
+    if idx == -1:
+        return answer_text.strip(), ""
+    return answer_text[:idx].strip(), answer_text[idx:].strip()
+
+
+async def send_answer_in_two_messages(
+    message: Message, answer_text: str, sources: list[dict]
+) -> None:
+    """Message 1: analysis; message 2: draft email + sources."""
+    analysis, draft = split_answer_blocks(answer_text)
+    sources_block = format_sources(sources)
+
+    if not draft:
+        await send_text_chunks(message, answer_text + "\n\n" + sources_block)
+        return
+
+    await send_text_chunks(message, analysis)
+    await send_text_chunks(message, draft + "\n\n" + sources_block)
+
+
 async def send_text_chunks(message: Message, text: str, *, chunk_size: int = 4096) -> None:
     """Send long bot replies in multiple Telegram messages."""
     remaining = text.strip()
@@ -154,8 +182,7 @@ async def handle_question(message: Message, state: FSMContext) -> None:
         return
 
     answer_text = result.answer.strip()
-    reply = answer_text + "\n\n" + format_sources(result.sources)
-    await send_text_chunks(message, reply)
+    await send_answer_in_two_messages(message, answer_text, result.sources)
 
     await state.set_state(BotStates.awaiting_rating)
     await state.update_data(

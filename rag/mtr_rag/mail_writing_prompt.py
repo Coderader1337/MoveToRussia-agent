@@ -105,6 +105,8 @@ The complete send-ready email to the client (plain text; optional Subject: line 
 
 Do not add a Sources section — the system appends sources automatically."""
 
+DRAFT_SECTION_MARKER = "=== DRAFT EMAIL TO CLIENT ==="
+
 
 @lru_cache(maxsize=1)
 def load_communication_principles() -> str:
