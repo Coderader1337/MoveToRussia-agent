@@ -24,7 +24,9 @@ Add in GitHub → Settings → Secrets and variables → Actions:
 |---|---|
 | `RAG_VPS_HOST` | `207.244.254.188` |
 | `RAG_VPS_USER` | `root` |
-| `RAG_VPS_SSH_KEY` | private key from `rag/deploy/github_actions_deploy_key` (local, gitignored) |
+| `RAG_VPS_SSH_KEY` | **private** key from `rag/deploy/github_actions_deploy_key` (local, gitignored) |
+
+Copy the entire file including `-----BEGIN OPENSSH PRIVATE KEY-----` / `-----END...` lines. Do **not** paste the `.pub` file.
 
 Public key is already in `/root/.ssh/authorized_keys` on the VPS (`github-actions-rag-deploy`).
 
