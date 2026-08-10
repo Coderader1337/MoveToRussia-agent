@@ -38,5 +38,6 @@ jobs:
           username: ${{ secrets.RAG_VPS_USER }}
           key: ${{ secrets.RAG_VPS_SSH_KEY }}
           script: |
+            find /opt/movetorussia/rag/deploy -name '*.sh' -exec chmod +x {} +
             bash /opt/movetorussia/rag/deploy/install-and-restart.sh \
               /opt/movetorussia/rag movetorussia-rag-bot
