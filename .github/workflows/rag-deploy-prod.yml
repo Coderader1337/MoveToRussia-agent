@@ -23,9 +23,10 @@ jobs:
       - name: Setup SSH key
         run: |
           install -m 700 -d ~/.ssh
-          printf '%s\n' "${{ secrets.RAG_VPS_SSH_KEY }}" > ~/.ssh/deploy_key
+          echo "${{ secrets.RAG_VPS_SSH_KEY }}" | tr -d '\r' > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
           ssh-keyscan -H "${{ secrets.RAG_VPS_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null || true
+          ssh-keygen -y -f ~/.ssh/deploy_key > /dev/null
 
       - name: Sync rag/ to VPS (prod)
         run: |

@@ -42,4 +42,4 @@ systemctl restart movetorussia-rag-bot-dev   # test
 systemctl restart movetorussia-rag-bot       # prod
 ```
 
-_Last CI deploy check: 2026-08-10_
+_Last CI deploy check: 2026-08-10 (manual OK)_
