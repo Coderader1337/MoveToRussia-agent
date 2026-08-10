@@ -20,24 +20,28 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Setup SSH key
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "${{ secrets.RAG_VPS_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H "${{ secrets.RAG_VPS_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null || true
+
       - name: Sync rag/ to VPS (dev)
-        uses: appleboy/scp-action@v0.1.7
-        with:
-          host: ${{ secrets.RAG_VPS_HOST }}
-          username: ${{ secrets.RAG_VPS_USER }}
-          key: ${{ secrets.RAG_VPS_SSH_KEY }}
-          source: "rag/bot,rag/mtr_rag,rag/prompt_data,rag/scripts,rag/deploy,rag/requirements.txt"
-          target: /opt/movetorussia/rag-dev
-          strip_components: 1
-          rm: false
+        run: |
+          rsync -avz --delete \
+            -e "ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no" \
+            --exclude 'venv/' \
+            --exclude '.env' \
+            --exclude 'data/' \
+            --exclude '__pycache__/' \
+            --exclude 'deploy/github_actions_deploy_key*' \
+            rag/ "${{ secrets.RAG_VPS_USER }}@${{ secrets.RAG_VPS_HOST }}:/opt/movetorussia/rag-dev/"
 
       - name: Install deps and restart dev bot
-        uses: appleboy/ssh-action@v1.2.0
-        with:
-          host: ${{ secrets.RAG_VPS_HOST }}
-          username: ${{ secrets.RAG_VPS_USER }}
-          key: ${{ secrets.RAG_VPS_SSH_KEY }}
-          script: |
-            find /opt/movetorussia/rag-dev/deploy -name '*.sh' -exec chmod +x {} +
-            bash /opt/movetorussia/rag-dev/deploy/install-and-restart.sh \
-              /opt/movetorussia/rag-dev movetorussia-rag-bot-dev
+        run: |
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
+            "${{ secrets.RAG_VPS_USER }}@${{ secrets.RAG_VPS_HOST }}" \
+            "find /opt/movetorussia/rag-dev/deploy -name '*.sh' -exec chmod +x {} + && \
+             bash /opt/movetorussia/rag-dev/deploy/install-and-restart.sh \
+               /opt/movetorussia/rag-dev movetorussia-rag-bot-dev"
