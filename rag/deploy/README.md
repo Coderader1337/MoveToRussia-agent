@@ -41,3 +41,5 @@ bash rag/deploy/install-and-restart.sh /opt/movetorussia/rag-dev movetorussia-ra
 systemctl restart movetorussia-rag-bot-dev   # test
 systemctl restart movetorussia-rag-bot       # prod
 ```
+
+_Last CI deploy check: 2026-08-10_
