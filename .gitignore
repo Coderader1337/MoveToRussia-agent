@@ -50,5 +50,7 @@ rag/__pycache__/
 rag/**/__pycache__/
 rag/deploy_log.txt
 rag/deploy_resume_log.txt
+rag/deploy/github_actions_deploy_key
+rag/deploy/github_actions_deploy_key.pub
 rag/scripts/_*.py
 rag/data/

@@ -1,0 +1,15 @@
+[Unit]
+Description=MoveToRussia RAG Telegram Bot (production)
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/movetorussia/rag
+EnvironmentFile=/opt/movetorussia/rag/.env
+ExecStart=/opt/movetorussia/rag/venv/bin/python bot/telegram_bot.py
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

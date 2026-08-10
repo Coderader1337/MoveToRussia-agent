@@ -1,0 +1,42 @@
+name: RAG bot — deploy prod
+
+on:
+  push:
+    branches:
+      - master
+    paths:
+      - "rag/**"
+      - ".github/workflows/rag-deploy-prod.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: rag-deploy-prod
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Sync rag/ to VPS (prod)
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.RAG_VPS_HOST }}
+          username: ${{ secrets.RAG_VPS_USER }}
+          key: ${{ secrets.RAG_VPS_SSH_KEY }}
+          source: "rag/bot,rag/mtr_rag,rag/prompt_data,rag/scripts,rag/deploy,rag/requirements.txt"
+          target: /opt/movetorussia/rag
+          strip_components: 1
+          rm: false
+
+      - name: Install deps and restart prod bot
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.RAG_VPS_HOST }}
+          username: ${{ secrets.RAG_VPS_USER }}
+          key: ${{ secrets.RAG_VPS_SSH_KEY }}
+          script: |
+            bash /opt/movetorussia/rag/deploy/install-and-restart.sh \
+              /opt/movetorussia/rag movetorussia-rag-bot
