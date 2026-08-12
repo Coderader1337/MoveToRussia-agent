@@ -4,3 +4,4 @@ qdrant-client>=1.9
 voyageai>=0.3
 aiogram>=3.10
 python-dotenv>=1.0
+yadisk[sync-defaults]>=3.0

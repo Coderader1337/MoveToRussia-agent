@@ -1,0 +1,15 @@
+[Unit]
+Description=MoveToRussia RAG — sync Yandex Disk txt corpus into Qdrant
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/movetorussia/rag
+EnvironmentFile=/opt/movetorussia/rag/.env
+ExecStart=/opt/movetorussia/rag/venv/bin/python scripts/update_yandex_disk_corpus.py
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

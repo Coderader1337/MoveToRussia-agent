@@ -44,4 +44,34 @@ systemctl restart movetorussia-rag-bot-dev   # test
 systemctl restart movetorussia-rag-bot       # prod
 ```
 
+## Yandex Disk supplemental corpus (daily sync)
+
+Txt files on Yandex Disk are synced into Qdrant as `source=yandex_disk` **without**
+touching mailbox/FAQ chunks. Runs once per day at 00:00 MSK on **prod only**
+(`/opt/movetorussia/rag`).
+
+### One-time setup
+
+1. Create a Yandex OAuth app at https://oauth.yandex.ru (scope `cloud_api:disk.read`)
+2. Add to `/opt/movetorussia/rag/.env`:
+   ```
+   YANDEX_DISK_TOKEN=<oauth_token>
+   YANDEX_DISK_REMOTE_DIR=/rag_corpus
+   ```
+3. Create folder `/rag_corpus` on Yandex Disk and upload `.txt` files
+4. Install the timer (once):
+   ```bash
+   bash /opt/movetorussia/rag/deploy/bootstrap-disk-sync.sh
+   ```
+
+### Manual run / logs
+
+```bash
+systemctl start movetorussia-rag-disk-sync.service
+journalctl -u movetorussia-rag-disk-sync.service -n 50 --no-pager
+systemctl list-timers movetorussia-rag-disk-sync.timer
+```
+
+Local data mirror: `/opt/movetorussia/rag/data/yandex_disk/` (not deployed via rsync).
+
 _Last CI deploy check: 2026-08-10 (manual OK, ci pending)_

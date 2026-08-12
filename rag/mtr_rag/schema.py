@@ -14,7 +14,7 @@ from typing import Any
 class Chunk:
     id: str
     thread_id: str
-    source: str  # "mailbox_thread" | "faq_catalog"
+    source: str  # "mailbox_thread" | "faq_catalog" | "yandex_disk"
     text: str
     subject: str = ""
     client_email: str | None = None

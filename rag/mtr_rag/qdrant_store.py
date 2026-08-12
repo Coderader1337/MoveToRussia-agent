@@ -65,6 +65,55 @@ def ensure_collection(client: QdrantClient, *, vector_size: int, recreate: bool 
             client.create_payload_index(name, field_name=field_name, field_schema=schema_type)
 
 
+def delete_chunk_ids(client: QdrantClient, chunk_ids: list[str]) -> None:
+    if not chunk_ids:
+        return
+    point_ids = [chunk_id_to_point_id(cid) for cid in chunk_ids]
+    client.delete(
+        collection_name=settings.qdrant_collection,
+        points_selector=qm.PointIdsList(points=point_ids),
+    )
+
+
+def list_chunk_ids_by_source(client: QdrantClient, source: str) -> list[str]:
+    """Scroll all point ids for a given source value (for reconcile)."""
+    ids: list[str] = []
+    offset = None
+    while True:
+        points, offset = client.scroll(
+            collection_name=settings.qdrant_collection,
+            scroll_filter=qm.Filter(
+                must=[qm.FieldCondition(key="source", match=qm.MatchValue(value=source))]
+            ),
+            limit=256,
+            offset=offset,
+            with_payload=["id"],
+            with_vectors=False,
+        )
+        for point in points:
+            payload = point.payload or {}
+            chunk_id = payload.get("id")
+            if chunk_id:
+                ids.append(str(chunk_id))
+        if offset is None:
+            break
+    return ids
+
+
+def reconcile_source(
+    client: QdrantClient,
+    *,
+    source: str,
+    expected_chunk_ids: set[str],
+) -> list[str]:
+    """Delete Qdrant points for `source` that are not in expected_chunk_ids."""
+    existing = set(list_chunk_ids_by_source(client, source))
+    orphan_ids = sorted(existing - expected_chunk_ids)
+    if orphan_ids:
+        delete_chunk_ids(client, orphan_ids)
+    return orphan_ids
+
+
 def upsert_chunks(client: QdrantClient, chunks: list[Chunk], vectors: list[list[float]]) -> None:
     points = [
         qm.PointStruct(

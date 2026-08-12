@@ -1,0 +1,10 @@
+[Unit]
+Description=Daily Yandex Disk RAG corpus sync at 00:00 MSK
+
+[Timer]
+OnCalendar=*-*-* 00:00:00 Europe/Moscow
+Persistent=true
+Unit=movetorussia-rag-disk-sync.service
+
+[Install]
+WantedBy=timers.target
