@@ -78,6 +78,17 @@ RATING_THANKS_TEXT = (
     "You can send your next request whenever you're ready."
 )
 
+PROCESSING_TEXT = (
+    "Working on your draft — extracting questions, searching the knowledge base, "
+    "and writing the reply. This usually takes 30–90 seconds."
+)
+
+ERROR_TEXT = (
+    "Could not get an answer — search or generation service is temporarily "
+    "unavailable. Please try again in a minute.\n"
+    "(technical reason: {reason})"
+)
+
 
 def format_sources(sources: list[dict]) -> str:
     if not sources:
@@ -169,20 +180,33 @@ async def handle_question(message: Message, state: FSMContext) -> None:
 
     top_k = get_top_k(message.from_user.id)
     await message.bot.send_chat_action(message.chat.id, "typing")
+    status_message = await message.answer(PROCESSING_TEXT)
 
     try:
         result = await asyncio.to_thread(ask, question, top_k=top_k)
     except Exception as exc:  # Voyage/Qdrant/DeepSeek unavailable, etc.
-        logger.exception("RAG chain failed for question: %s", question)
-        await message.answer(
-            "Could not get an answer — search or generation service is temporarily "
-            "unavailable. Please try again in a minute.\n"
-            f"(technical reason: {type(exc).__name__})"
-        )
+        logger.exception("RAG chain failed for question: %s", question[:200])
+        await status_message.edit_text(ERROR_TEXT.format(reason=type(exc).__name__))
         return
 
     answer_text = result.answer.strip()
-    await send_answer_in_two_messages(message, answer_text, result.sources)
+    if not answer_text:
+        await status_message.edit_text(
+            ERROR_TEXT.format(reason="empty model response")
+        )
+        return
+
+    try:
+        await status_message.delete()
+    except Exception:
+        logger.warning("Could not delete processing status message", exc_info=True)
+
+    try:
+        await send_answer_in_two_messages(message, answer_text, result.sources)
+    except Exception:
+        logger.exception("Failed to send RAG answer to user_id=%s", message.from_user.id)
+        await message.answer(ERROR_TEXT.format(reason="TelegramSendError"))
+        return
 
     await state.set_state(BotStates.awaiting_rating)
     await state.update_data(

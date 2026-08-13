@@ -73,9 +73,15 @@ def retrieve_merged(
     if len(queries) == 1:
         return retriever.invoke(queries[0])[:top_k]
 
+    embed_queries = getattr(retriever.embedder, "embed_queries", None)
+    if embed_queries is not None:
+        vectors = embed_queries(queries)
+    else:
+        vectors = [retriever.embedder.embed_query(query) for query in queries]
+
     best: dict[str, Document] = {}
-    for query in queries:
-        for doc in retriever.invoke(query):
+    for vector in vectors:
+        for doc in retriever.search_by_vector(vector):
             key = _doc_dedupe_key(doc)
             prev = best.get(key)
             if prev is None or (doc.metadata.get("score") or 0) > (prev.metadata.get("score") or 0):

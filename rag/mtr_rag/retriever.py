@@ -57,18 +57,26 @@ class MtrKnowledgeBaseRetriever(BaseRetriever):
         super().__init__(**kwargs)
         self._client = get_client()
 
-    def _get_relevant_documents(
-        self, query: str, *, run_manager: CallbackManagerForRetrieverRun
-    ) -> list[Document]:
-        query_vector = self.embedder.embed_query(query)
+    def search_by_vector(self, query_vector: list[float], *, top_k: int | None = None) -> list[Document]:
         query_filter = build_filter(
             source=self.source,
             exclude_low_signal=self.exclude_low_signal,
             manager_email=self.manager_email,
         )
-        points = search(self._client, query_vector, top_k=self.top_k, query_filter=query_filter)
+        points = search(
+            self._client,
+            query_vector,
+            top_k=top_k or self.top_k,
+            query_filter=query_filter,
+        )
         documents = []
         for point in points:
             chunk = Chunk.from_payload(point.payload or {})
             documents.append(chunk_to_document(chunk, point.score))
         return documents
+
+    def _get_relevant_documents(
+        self, query: str, *, run_manager: CallbackManagerForRetrieverRun
+    ) -> list[Document]:
+        query_vector = self.embedder.embed_query(query)
+        return self.search_by_vector(query_vector)
