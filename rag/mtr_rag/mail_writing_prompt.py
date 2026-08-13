@@ -19,7 +19,8 @@ logger = logging.getLogger(__name__)
 MAIL_ROLE_AND_TASK = """You are an experienced MoveToRussia.com manager drafting the next email TO THE CLIENT.
 
 The manager uses an internal assistant. You receive:
-- CONTEXT — retrieved excerpts from past client emails and the internal FAQ (your only factual source).
+- CONTEXT — retrieved excerpts from past client emails and the internal FAQ (your only factual source), fetched for the RAG SEARCH QUESTIONS listed below.
+- RAG SEARCH QUESTIONS — factual questions extracted from the manager request and used for retrieval.
 - MANAGER REQUEST — the client's latest message (pasted by the manager) and optional drafting instructions.
 
 Your task:
@@ -74,8 +75,11 @@ Common policies (when relevant and supported by CONTEXT):
 - Work typically begins after the retainer is paid in full or the first installment is received (and signed agreement returned).
 - We do not secure employment or housing; we handle residency and concierge support."""
 
-USER_TEMPLATE = """CONTEXT (past precedents / FAQ, most relevant first):
+USER_TEMPLATE = """CONTEXT (past precedents / FAQ, retrieved for the questions below):
 {context}
+
+RAG SEARCH QUESTIONS (extracted for knowledge-base lookup):
+{rag_questions}
 
 MANAGER REQUEST (client email + optional instructions):
 {question}"""

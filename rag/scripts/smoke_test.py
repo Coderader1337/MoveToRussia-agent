@@ -81,6 +81,10 @@ def main() -> int:
     for q in SAMPLE_QUESTIONS:
         print(f"\n--- Question: {q}")
         result = ask(q, top_k=5, embedder=embedder if args.fake_embeddings else None)
+        if result.extracted_questions:
+            print("Extracted RAG questions:")
+            for i, eq in enumerate(result.extracted_questions, start=1):
+                print(f"  {i}. {eq}")
         print(f"Answer:\n{result.answer}\n")
         print("Sources:")
         for s in result.sources:
