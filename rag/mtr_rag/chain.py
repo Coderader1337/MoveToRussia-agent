@@ -1,7 +1,10 @@
-"""Retrieval-augmented email drafting: question -> Qdrant top-k -> DeepSeek client email.
+"""Retrieval-augmented assistant: extract questions -> Qdrant top-k -> DeepSeek answer or email draft.
 
-Retrieval is unchanged (Voyage + Qdrant). Generation prompt adds mail-writing
-instructions and communication principles on top of retrieved CONTEXT.
+Flow:
+1. DeepSeek extracts factual RAG search questions from the manager request.
+2. Each question retrieves precedents (Voyage + Qdrant); results are merged.
+3. DeepSeek responds: direct Q&A for factual questions, or analysis + client email draft
+   when the manager pasted a client message and asked for a reply.
 """
 
 from __future__ import annotations
@@ -17,6 +20,7 @@ from langchain_openai import ChatOpenAI
 
 from .config import settings
 from .mail_writing_prompt import USER_TEMPLATE, build_system_prompt, load_communication_principles
+from .question_extraction import extract_rag_questions
 from .retriever import MtrKnowledgeBaseRetriever
 
 
@@ -44,10 +48,59 @@ def format_docs(docs: list[Document]) -> str:
     return "\n\n---\n\n".join(blocks)
 
 
+def format_rag_questions(questions: list[str]) -> str:
+    if not questions:
+        return "(none)"
+    return "\n".join(f"{i}. {q}" for i, q in enumerate(questions, start=1))
+
+
+def _doc_dedupe_key(doc: Document) -> str:
+    meta = doc.metadata
+    thread_id = meta.get("thread_id") or ""
+    source = meta.get("source") or ""
+    return f"{source}:{thread_id}:{hash(doc.page_content)}"
+
+
+def retrieve_merged(
+    retriever: MtrKnowledgeBaseRetriever,
+    queries: list[str],
+    *,
+    top_k: int,
+) -> list[Document]:
+    """Retrieve for one or more queries and return the best unique chunks."""
+    if not queries:
+        return []
+
+    if len(queries) == 1:
+        return retriever.invoke(queries[0])[:top_k]
+
+    embed_queries = getattr(retriever.embedder, "embed_queries", None)
+    if embed_queries is not None:
+        vectors = embed_queries(queries)
+    else:
+        vectors = [retriever.embedder.embed_query(query) for query in queries]
+
+    best: dict[str, Document] = {}
+    for vector in vectors:
+        for doc in retriever.search_by_vector(vector):
+            key = _doc_dedupe_key(doc)
+            prev = best.get(key)
+            if prev is None or (doc.metadata.get("score") or 0) > (prev.metadata.get("score") or 0):
+                best[key] = doc
+
+    ranked = sorted(
+        best.values(),
+        key=lambda doc: doc.metadata.get("score") or 0,
+        reverse=True,
+    )
+    return ranked[:top_k]
+
+
 @dataclass
 class RagAnswer:
     answer: str
     sources: list[dict] = field(default_factory=list)
+    extracted_questions: list[str] = field(default_factory=list)
 
 
 def build_llm() -> ChatOpenAI:
@@ -68,9 +121,13 @@ def ask(
     manager_email: str | None = None,
     embedder: Embeddings | None = None,
 ) -> RagAnswer:
-    """Retrieve precedents + FAQ, then draft a client email for the manager."""
+    """Extract factual questions, retrieve precedents + FAQ, then answer or draft a client email."""
+    effective_top_k = top_k or settings.retrieval_top_k
+    llm = build_llm()
+    rag_questions = extract_rag_questions(question, llm=llm)
+
     retriever_kwargs = dict(
-        top_k=top_k or settings.retrieval_top_k,
+        top_k=effective_top_k,
         source=source,
         exclude_low_signal=exclude_low_signal,
         manager_email=manager_email,
@@ -78,15 +135,20 @@ def ask(
     if embedder is not None:
         retriever_kwargs["embedder"] = embedder
     retriever = MtrKnowledgeBaseRetriever(**retriever_kwargs)
-    docs = retriever.invoke(question)
+    docs = retrieve_merged(retriever, rag_questions, top_k=effective_top_k)
 
     prompt = ChatPromptTemplate.from_messages(
         [("system", build_system_prompt()), ("human", USER_TEMPLATE)]
     )
-    llm = build_llm()
     text_chain = prompt | llm | StrOutputParser()
     answer_text = sanitize_answer(
-        text_chain.invoke({"context": format_docs(docs), "question": question})
+        text_chain.invoke(
+            {
+                "context": format_docs(docs),
+                "question": question,
+                "rag_questions": format_rag_questions(rag_questions),
+            }
+        )
     )
 
     sources = [
@@ -99,7 +161,11 @@ def ask(
         }
         for d in docs
     ]
-    return RagAnswer(answer=answer_text, sources=sources)
+    return RagAnswer(
+        answer=answer_text,
+        sources=sources,
+        extracted_questions=rag_questions,
+    )
 
 
 def warmup_prompt() -> None:

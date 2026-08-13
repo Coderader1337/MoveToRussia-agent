@@ -2,6 +2,7 @@
 
 - `iter_corpus_chunks`: mailbox_export_RAG/corpus.jsonl (one JSON object per line)
 - `iter_faq_chunks`: knowledge_base/v4/client_faq_review.csv (semicolon-delimited FAQ catalog)
+- `iter_disk_corpus_chunks`: data/yandex_disk/corpus.jsonl (txt files from Yandex Disk)
 """
 
 from __future__ import annotations
@@ -83,11 +84,47 @@ def iter_faq_chunks(faq_csv_path: Path) -> Iterator[Chunk]:
             )
 
 
-def load_all_chunks(corpus_path: Path, faq_csv_path: Path, *, include_faq: bool = True) -> list[Chunk]:
+def iter_disk_corpus_chunks(corpus_path: Path) -> Iterator[Chunk]:
+    """Supplemental txt corpus synced from Yandex Disk (source=yandex_disk)."""
+    if not corpus_path.is_file():
+        return
+    with corpus_path.open(encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            row = json.loads(line)
+            yield Chunk(
+                id=row["id"],
+                thread_id=row.get("thread_id", ""),
+                source=row.get("source", "yandex_disk"),
+                text=row.get("text", "") or "",
+                subject=row.get("subject", "") or "",
+                client_email=row.get("client_email"),
+                manager_emails=row.get("manager_emails", []) or [],
+                date_start=row.get("date_start"),
+                date_end=row.get("date_end"),
+                language=row.get("language"),
+                low_signal=bool(row.get("low_signal", False)),
+                word_count=row.get("word_count", 0),
+                distilled=row.get("distilled"),
+                extra=row.get("extra", {}) or {},
+            )
+
+
+def load_all_chunks(
+    corpus_path: Path,
+    faq_csv_path: Path,
+    *,
+    include_faq: bool = True,
+    disk_corpus_path: Path | None = None,
+) -> list[Chunk]:
     chunks = list(iter_corpus_chunks(corpus_path))
     if include_faq:
         try:
             chunks.extend(iter_faq_chunks(faq_csv_path))
         except FileNotFoundError:
             pass
+    if disk_corpus_path is not None:
+        chunks.extend(iter_disk_corpus_chunks(disk_corpus_path))
     return chunks

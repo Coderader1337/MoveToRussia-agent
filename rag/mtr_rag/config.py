@@ -72,6 +72,13 @@ class Settings:
         )
     )
 
+    # --- Yandex Disk supplemental corpus (txt files synced daily) ---
+    yandex_disk_token: str = os.getenv("YANDEX_DISK_TOKEN", "")
+    yandex_disk_remote_dir: str = os.getenv("YANDEX_DISK_REMOTE_DIR", "/rag_corpus")
+    disk_corpus_dir: Path = Path(
+        os.getenv("MTR_DISK_CORPUS_DIR", str(_RAG_DIR / "data" / "yandex_disk"))
+    )
+
     # --- Retrieval defaults ---
     retrieval_top_k: int = _get_int("MTR_RETRIEVAL_TOP_K", 6)
 

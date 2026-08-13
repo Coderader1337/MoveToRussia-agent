@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import logging
 import random
+import threading
 import time
 from collections.abc import Sequence
 
@@ -22,6 +23,9 @@ from .config import settings
 logger = logging.getLogger(__name__)
 
 RETRYABLE_EXCEPTIONS = (RateLimitError, ServerError, ServiceUnavailableError)
+
+# Serialize Voyage calls — free-tier accounts are capped at ~3 RPM.
+_VOYAGE_API_LOCK = threading.Lock()
 
 
 class VoyageEmbedder(Embeddings):
@@ -48,12 +52,13 @@ class VoyageEmbedder(Embeddings):
         attempt = 0
         while True:
             try:
-                result = self._client.embed(
-                    texts,
-                    model=self.model,
-                    input_type=input_type,
-                    output_dimension=self.output_dimension,
-                )
+                with _VOYAGE_API_LOCK:
+                    result = self._client.embed(
+                        texts,
+                        model=self.model,
+                        input_type=input_type,
+                        output_dimension=self.output_dimension,
+                    )
                 return result.embeddings
             except RETRYABLE_EXCEPTIONS as exc:
                 attempt += 1
@@ -79,7 +84,12 @@ class VoyageEmbedder(Embeddings):
         return self._embed_batched(texts, input_type="document")
 
     def embed_query(self, text: str) -> list[float]:
-        return self._embed_with_retry([text], input_type="query")[0]
+        return self.embed_queries([text])[0]
+
+    def embed_queries(self, texts: list[str]) -> list[list[float]]:
+        if not texts:
+            return []
+        return self._embed_batched(texts, input_type="query")
 
     def count_tokens(self, texts: Sequence[str]) -> int:
         try:
@@ -117,7 +127,10 @@ class FakeDeterministicEmbedder(Embeddings):
         return [self._vector(t) for t in texts]
 
     def embed_query(self, text: str) -> list[float]:
-        return self._vector(text)
+        return self.embed_queries([text])[0]
+
+    def embed_queries(self, texts: list[str]) -> list[list[float]]:
+        return [self._vector(t) for t in texts]
 
     def count_tokens(self, texts: Sequence[str]) -> int:
         return sum(len(t) for t in texts) // 4
