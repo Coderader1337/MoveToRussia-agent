@@ -1,7 +1,7 @@
-"""Telegram bot: managers paste a client email, RAG finds precedents, bot drafts a reply.
+"""Telegram bot: managers ask factual questions or paste a client email for a draft reply.
 
-Flow: manager sends client email + optional instructions -> RAG retrieval ->
-DeepSeek drafts client-facing email -> reply with draft + Sources list ->
+Flow: manager sends a question OR client email + instructions -> RAG retrieval ->
+DeepSeek answers or drafts client-facing email -> reply + Sources list ->
 mandatory 1–10 rating -> row appended to usage_stats.csv.
 """
 
@@ -50,19 +50,23 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 logger = logging.getLogger("mtr_rag_bot")
 
 WELCOME_TEXT = (
-    "Hi! I'm the MoveToRussia email drafting assistant.\n\n"
-    "Paste the client's latest email and add any instructions — I'll draft "
-    "a reply using precedents from past cases and the internal FAQ.\n\n"
-    "Example:\n"
-    "Draft a reply. Clarify that work starts only after the retainer is paid.\n\n"
-    "Client email:\n"
-    "\"Hello, I would like to learn how you can help me relocate to Russia...\""
+    "Hi! I'm the MoveToRussia internal assistant.\n\n"
+    "You can:\n"
+    "1. Ask a factual question — I'll search precedents and the FAQ and answer directly.\n"
+    "   Example: What is the White Gloves package price?\n\n"
+    "2. Paste a client email and ask for a draft reply — I'll draft a send-ready "
+    "response using precedents and communication principles.\n"
+    "   Example:\n"
+    "   Draft a reply. Clarify that work starts only after the retainer is paid.\n\n"
+    "   Client email:\n"
+    "   \"Hello, I would like to learn how you can help me relocate to Russia...\""
 )
 
 HELP_TEXT = (
-    "Paste the client's email and optional instructions (what to clarify, include, avoid).\n"
-    "You'll get: brief analysis, client questions, facts from the knowledge base, "
-    "a draft reply, and a Sources list.\n\n"
+    "Ask a factual question OR paste the client's email with optional instructions.\n\n"
+    "Factual question → direct answer from the knowledge base.\n"
+    "Client email + draft request → brief analysis, client questions, facts from KB, "
+    "and a draft reply + Sources list.\n\n"
     "/topk N — number of precedents to retrieve (default "
     f"{settings.retrieval_top_k})\n"
     "/help — this message"
@@ -79,8 +83,8 @@ RATING_THANKS_TEXT = (
 )
 
 PROCESSING_TEXT = (
-    "Working on your draft — extracting questions, searching the knowledge base, "
-    "and writing the reply. This usually takes 30–90 seconds."
+    "Working on your request — extracting questions, searching the knowledge base, "
+    "and generating the answer. This usually takes 30–90 seconds."
 )
 
 ERROR_TEXT = (

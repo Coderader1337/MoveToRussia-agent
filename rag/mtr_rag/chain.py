@@ -1,9 +1,10 @@
-"""Retrieval-augmented email drafting: extract questions -> Qdrant top-k -> DeepSeek client email.
+"""Retrieval-augmented assistant: extract questions -> Qdrant top-k -> DeepSeek answer or email draft.
 
 Flow:
 1. DeepSeek extracts factual RAG search questions from the manager request.
 2. Each question retrieves precedents (Voyage + Qdrant); results are merged.
-3. DeepSeek drafts the manager-facing analysis + client email using CONTEXT.
+3. DeepSeek responds: direct Q&A for factual questions, or analysis + client email draft
+   when the manager pasted a client message and asked for a reply.
 """
 
 from __future__ import annotations
@@ -120,7 +121,7 @@ def ask(
     manager_email: str | None = None,
     embedder: Embeddings | None = None,
 ) -> RagAnswer:
-    """Extract factual questions, retrieve precedents + FAQ, then draft a client email."""
+    """Extract factual questions, retrieve precedents + FAQ, then answer or draft a client email."""
     effective_top_k = top_k or settings.retrieval_top_k
     llm = build_llm()
     rag_questions = extract_rag_questions(question, llm=llm)

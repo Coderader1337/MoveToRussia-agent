@@ -12,13 +12,18 @@ from langchain_openai import ChatOpenAI
 
 logger = logging.getLogger(__name__)
 
-EXTRACT_QUESTIONS_SYSTEM = """You help a MoveToRussia.com email drafting assistant retrieve facts from a knowledge base.
+EXTRACT_QUESTIONS_SYSTEM = """You help a MoveToRussia.com internal assistant retrieve facts from a knowledge base.
 
-The manager sends a client email and optional drafting instructions. Extract ONLY the questions that need factual answers from the internal knowledge base (prices, fees, timelines, required documents, visa/residency types, policies, procedures, partner contacts, service scope, etc.).
+The manager may send either:
+(A) A direct factual question (e.g. "What is the White Gloves package price?", "Какие документы нужны для Shared Values Visa?")
+(B) A client email pasted by the manager plus optional drafting instructions
+
+Extract ONLY the questions that need factual answers from the internal knowledge base (prices, fees, timelines, required documents, visa/residency types, policies, procedures, partner contacts, service scope, etc.).
 
 Rules:
-- Include explicit AND implicit factual questions from the client's message.
-- Write each question as a standalone English search query (even if the client wrote in another language).
+- For (A): extract the manager's factual question as one or more search queries.
+- For (B): include explicit AND implicit factual questions from the client's message.
+- Write each question as a standalone English search query (even if the original was in another language).
 - Do NOT include tone/style instructions, greetings, or meta requests like "draft a reply".
 - Do NOT include questions answerable without company-specific facts.
 - Merge duplicates; keep distinct topics as separate questions.
