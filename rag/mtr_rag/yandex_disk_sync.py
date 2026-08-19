@@ -22,6 +22,7 @@ from .schema import Chunk
 logger = logging.getLogger(__name__)
 
 DISK_SOURCE = "yandex_disk"
+DISK_PRIORITY = "highest"  # authoritative curated files — override FAQ and mailbox precedents
 FILES_SUBDIR = "files"
 CORPUS_FILENAME = "corpus.jsonl"
 MANIFEST_FILENAME = "manifest.json"
@@ -283,6 +284,7 @@ def _write_corpus_jsonl(local_files: Path, out_path: Path) -> None:
                 "extra": {
                     "file_path": rel,
                     "content_sha256": sha256_text(text),
+                    "priority": DISK_PRIORITY,
                 },
             }
             out.write(json.dumps(record, ensure_ascii=False) + "\n")

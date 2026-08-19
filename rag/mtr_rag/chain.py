@@ -22,6 +22,7 @@ from .config import settings
 from .mail_writing_prompt import USER_TEMPLATE, build_system_prompt, load_communication_principles
 from .question_extraction import extract_rag_questions, format_history_for_prompt
 from .retriever import MtrKnowledgeBaseRetriever
+from .yandex_disk_sync import DISK_PRIORITY, DISK_SOURCE
 
 
 def sanitize_answer(text: str) -> str:
@@ -33,17 +34,32 @@ def sanitize_answer(text: str) -> str:
     return text.strip()
 
 
+def _doc_sort_key(doc: Document) -> tuple[int, float]:
+    """Official Yandex Disk files first, then by retrieval score."""
+    priority_rank = 0 if doc.metadata.get("source") == DISK_SOURCE else 1
+    return priority_rank, -(doc.metadata.get("score") or 0)
+
+
+def _format_doc_header(index: int, meta: dict) -> str:
+    source = meta.get("source")
+    if source == DISK_SOURCE:
+        file_path = meta.get("file_path") or meta.get("subject") or "unknown"
+        priority = meta.get("priority") or DISK_PRIORITY
+        return f'[{index}] source=official_file priority={priority} file="{file_path}"'
+    header = f"[{index}] source={source} thread_id={meta.get('thread_id')}"
+    if meta.get("subject"):
+        header += f" subject=\"{meta['subject']}\""
+    if meta.get("date_start"):
+        header += f" date={meta['date_start']}"
+    return header
+
+
 def format_docs(docs: list[Document]) -> str:
     if not docs:
         return "(no relevant precedents found in the knowledge base)"
     blocks = []
-    for i, doc in enumerate(docs, start=1):
-        meta = doc.metadata
-        header = f"[{i}] source={meta.get('source')} thread_id={meta.get('thread_id')}"
-        if meta.get("subject"):
-            header += f" subject=\"{meta['subject']}\""
-        if meta.get("date_start"):
-            header += f" date={meta['date_start']}"
+    for i, doc in enumerate(sorted(docs, key=_doc_sort_key), start=1):
+        header = _format_doc_header(i, doc.metadata)
         blocks.append(f"{header}\n{doc.page_content}")
     return "\n\n---\n\n".join(blocks)
 
@@ -164,6 +180,8 @@ def ask(
             "thread_id": d.metadata.get("thread_id"),
             "subject": d.metadata.get("subject"),
             "source": d.metadata.get("source"),
+            "file_path": d.metadata.get("file_path"),
+            "priority": d.metadata.get("priority"),
             "date_start": d.metadata.get("date_start"),
             "score": d.metadata.get("score"),
         }

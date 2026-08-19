@@ -21,9 +21,13 @@ from .config import settings
 from .embeddings import VoyageEmbedder
 from .qdrant_store import build_filter, get_client, search
 from .schema import Chunk
+from .yandex_disk_sync import DISK_PRIORITY, DISK_SOURCE
 
 
 def chunk_to_document(chunk: Chunk, score: float) -> Document:
+    priority = chunk.extra.get("priority")
+    if priority is None and chunk.source == DISK_SOURCE:
+        priority = DISK_PRIORITY
     return Document(
         page_content=chunk.text,
         metadata={
@@ -31,6 +35,8 @@ def chunk_to_document(chunk: Chunk, score: float) -> Document:
             "thread_id": chunk.thread_id,
             "subject": chunk.subject,
             "source": chunk.source,
+            "file_path": chunk.extra.get("file_path"),
+            "priority": priority,
             "client_email": chunk.client_email,
             "manager_emails": chunk.manager_emails,
             "date_start": chunk.date_start,
