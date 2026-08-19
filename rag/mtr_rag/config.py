@@ -81,6 +81,9 @@ class Settings:
 
     # --- Retrieval defaults ---
     retrieval_top_k: int = _get_int("MTR_RETRIEVAL_TOP_K", 6)
+    # Reserved slots for Yandex Disk official files when similarity exceeds disk_min_score.
+    disk_reserve_slots: int = _get_int("MTR_DISK_RESERVE_SLOTS", 2)
+    disk_min_score: float = _get_float("MTR_DISK_MIN_SCORE", 0.30)
 
     # --- Память диалога (контекст треда для follow-up вопросов) ---
     # Сколько последних пар вопрос/ответ хранить на пользователя.

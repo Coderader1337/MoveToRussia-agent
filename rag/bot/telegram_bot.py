@@ -109,11 +109,15 @@ def format_sources(sources: list[dict]) -> str:
         return "No sources found."
     lines = ["\nSources:"]
     for s in sources:
-        bits = [f"thread_id={s.get('thread_id')}"]
-        if s.get("subject"):
-            bits.append(f"«{s['subject']}»")
-        if s.get("date_start"):
-            bits.append(str(s["date_start"])[:10])
+        if s.get("source") == "yandex_disk":
+            label = s.get("file_path") or s.get("subject") or s.get("thread_id")
+            bits = [f"official_file={label}", "priority=highest"]
+        else:
+            bits = [f"thread_id={s.get('thread_id')}"]
+            if s.get("subject"):
+                bits.append(f"«{s['subject']}»")
+            if s.get("date_start"):
+                bits.append(str(s["date_start"])[:10])
         lines.append("• " + " ".join(bits))
     return "\n".join(lines)
 

@@ -28,6 +28,7 @@ def chunk_to_document(chunk: Chunk, score: float) -> Document:
     priority = chunk.extra.get("priority")
     if priority is None and chunk.source == DISK_SOURCE:
         priority = DISK_PRIORITY
+    file_path = chunk.extra.get("file_path")
     return Document(
         page_content=chunk.text,
         metadata={
@@ -35,7 +36,7 @@ def chunk_to_document(chunk: Chunk, score: float) -> Document:
             "thread_id": chunk.thread_id,
             "subject": chunk.subject,
             "source": chunk.source,
-            "file_path": chunk.extra.get("file_path"),
+            "file_path": file_path,
             "priority": priority,
             "client_email": chunk.client_email,
             "manager_emails": chunk.manager_emails,
@@ -45,6 +46,41 @@ def chunk_to_document(chunk: Chunk, score: float) -> Document:
             "low_signal": chunk.low_signal,
         },
     )
+
+
+def _doc_key(doc: Document) -> str:
+    meta = doc.metadata
+    return f"{meta.get('source')}:{meta.get('thread_id')}:{hash(doc.page_content)}"
+
+
+def merge_disk_priority(
+    general: list[Document],
+    disk: list[Document],
+    *,
+    top_k: int,
+    disk_reserve_slots: int,
+    disk_min_score: float,
+) -> list[Document]:
+    """Reserve slots for relevant official Yandex Disk files, fill rest from general search."""
+    reserved: list[Document] = []
+    for doc in disk:
+        if len(reserved) >= disk_reserve_slots:
+            break
+        if (doc.metadata.get("score") or 0) < disk_min_score:
+            continue
+        reserved.append(doc)
+
+    seen = {_doc_key(doc) for doc in reserved}
+    merged = list(reserved)
+    for doc in general:
+        if len(merged) >= top_k:
+            break
+        key = _doc_key(doc)
+        if key in seen:
+            continue
+        merged.append(doc)
+        seen.add(key)
+    return merged
 
 
 class MtrKnowledgeBaseRetriever(BaseRetriever):
@@ -63,23 +99,54 @@ class MtrKnowledgeBaseRetriever(BaseRetriever):
         super().__init__(**kwargs)
         self._client = get_client()
 
-    def search_by_vector(self, query_vector: list[float], *, top_k: int | None = None) -> list[Document]:
-        query_filter = build_filter(
-            source=self.source,
-            exclude_low_signal=self.exclude_low_signal,
-            manager_email=self.manager_email,
-        )
-        points = search(
-            self._client,
-            query_vector,
-            top_k=top_k or self.top_k,
-            query_filter=query_filter,
-        )
+    def _points_to_documents(self, points) -> list[Document]:
         documents = []
         for point in points:
             chunk = Chunk.from_payload(point.payload or {})
             documents.append(chunk_to_document(chunk, point.score))
         return documents
+
+    def _search_points(
+        self,
+        query_vector: list[float],
+        *,
+        top_k: int,
+        source: str | None = None,
+    ):
+        query_filter = build_filter(
+            source=source if source is not None else self.source,
+            exclude_low_signal=self.exclude_low_signal,
+            manager_email=self.manager_email,
+        )
+        return search(
+            self._client,
+            query_vector,
+            top_k=top_k,
+            query_filter=query_filter,
+        )
+
+    def search_by_vector(self, query_vector: list[float], *, top_k: int | None = None) -> list[Document]:
+        effective_k = top_k or self.top_k
+        general_points = self._search_points(query_vector, top_k=effective_k)
+        general = self._points_to_documents(general_points)
+
+        # When searching all sources, reserve slots for relevant official disk files.
+        if self.source is not None:
+            return general
+
+        disk_points = self._search_points(
+            query_vector,
+            top_k=settings.disk_reserve_slots,
+            source=DISK_SOURCE,
+        )
+        disk_docs = self._points_to_documents(disk_points)
+        return merge_disk_priority(
+            general,
+            disk_docs,
+            top_k=effective_k,
+            disk_reserve_slots=settings.disk_reserve_slots,
+            disk_min_score=settings.disk_min_score,
+        )
 
     def _get_relevant_documents(
         self, query: str, *, run_manager: CallbackManagerForRetrieverRun
