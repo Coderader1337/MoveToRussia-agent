@@ -20,7 +20,7 @@ from langchain_openai import ChatOpenAI
 
 from .config import settings
 from .mail_writing_prompt import USER_TEMPLATE, build_system_prompt, load_communication_principles
-from .question_extraction import extract_rag_questions
+from .question_extraction import extract_rag_questions, format_history_for_prompt
 from .retriever import MtrKnowledgeBaseRetriever
 
 
@@ -120,11 +120,18 @@ def ask(
     exclude_low_signal: bool = False,
     manager_email: str | None = None,
     embedder: Embeddings | None = None,
+    history: list | None = None,
 ) -> RagAnswer:
-    """Extract factual questions, retrieve precedents + FAQ, then answer or draft a client email."""
+    """Extract factual questions, retrieve precedents + FAQ, then answer or draft a client email.
+
+    `history` — предыдущие реплики треда (bot.user_state.HistoryTurn или совместимый
+    объект с полями question/answer). Используется для разрешения ссылок при извлечении
+    RAG-вопросов и для связности генерации; ретривал в Qdrant при этом выполняется
+    заново на каждом запросе — история не заменяет и не кэширует поиск фактов.
+    """
     effective_top_k = top_k or settings.retrieval_top_k
     llm = build_llm()
-    rag_questions = extract_rag_questions(question, llm=llm)
+    rag_questions = extract_rag_questions(question, llm=llm, history=history)
 
     retriever_kwargs = dict(
         top_k=effective_top_k,
@@ -147,6 +154,7 @@ def ask(
                 "context": format_docs(docs),
                 "question": question,
                 "rag_questions": format_rag_questions(rag_questions),
+                "history": format_history_for_prompt(history or []),
             }
         )
     )

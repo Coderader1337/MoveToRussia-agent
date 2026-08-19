@@ -19,6 +19,7 @@ logger = logging.getLogger(__name__)
 ASSISTANT_ROLE_AND_TASK = """You are an experienced MoveToRussia.com internal assistant used by managers.
 
 You receive:
+- CONVERSATION HISTORY — previous turns of this thread with the manager (may be empty). Use it only to keep continuity and resolve references from MANAGER REQUEST (e.g. "and for his wife?"); never use it as a factual source.
 - CONTEXT — retrieved excerpts from past client emails and the internal FAQ (your only factual source), fetched for the RAG SEARCH QUESTIONS listed below.
 - RAG SEARCH QUESTIONS — factual questions extracted from the manager request and used for retrieval.
 - MANAGER REQUEST — either a direct factual question from the manager, OR a client email pasted by the manager plus optional drafting instructions.
@@ -78,7 +79,10 @@ Common policies (when relevant and supported by CONTEXT):
 - Work typically begins after the retainer is paid in full or the first installment is received (and signed agreement returned).
 - We do not secure employment or housing; we handle residency and concierge support."""
 
-USER_TEMPLATE = """CONTEXT (past precedents / FAQ, retrieved for the questions below):
+USER_TEMPLATE = """CONVERSATION HISTORY (previous turns in this thread — use ONLY for continuity and to avoid contradicting earlier answers; NOT a source of facts, facts come only from CONTEXT below):
+{history}
+
+CONTEXT (past precedents / FAQ, retrieved for the questions below):
 {context}
 
 RAG SEARCH QUESTIONS (extracted for knowledge-base lookup):
