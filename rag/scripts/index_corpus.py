@@ -54,6 +54,18 @@ def parse_args() -> argparse.Namespace:
         default=2.0,
         help="Seconds to wait between batches (helps avoid Voyage rate limits)",
     )
+    p.add_argument(
+        "--voyage-max-retries",
+        type=int,
+        default=5,
+        help="Max retries per Voyage embed call on 429/5xx (default: 5)",
+    )
+    p.add_argument(
+        "--voyage-base-delay",
+        type=float,
+        default=1.0,
+        help="Base delay (seconds) for Voyage exponential backoff (default: 1.0)",
+    )
     return p.parse_args()
 
 
@@ -73,7 +85,11 @@ def main() -> int:
         by_source[c.source] = by_source.get(c.source, 0) + 1
     logger.info("Loaded %d chunks: %s", len(chunks), by_source)
 
-    embedder = VoyageEmbedder(batch_size=args.batch_size)
+    embedder = VoyageEmbedder(
+        batch_size=args.batch_size,
+        max_retries=args.voyage_max_retries,
+        base_delay=args.voyage_base_delay,
+    )
     texts = [c.embedding_text() for c in chunks]
 
     if args.dry_run:
@@ -95,13 +111,25 @@ def main() -> int:
     for start in range(0, len(chunks), args.batch_size):
         batch_chunks = chunks[start : start + args.batch_size]
         batch_texts = texts[start : start + args.batch_size]
-        try:
-            vectors = embedder.embed_documents(batch_texts)
-            upsert_chunks(client, batch_chunks, vectors)
-            indexed += len(batch_chunks)
-        except Exception:
-            errors += len(batch_chunks)
-            logger.exception("Failed to index batch starting at %d", start)
+        batch_ok = False
+        for attempt in range(1, 4):
+            try:
+                vectors = embedder.embed_documents(batch_texts)
+                upsert_chunks(client, batch_chunks, vectors)
+                indexed += len(batch_chunks)
+                batch_ok = True
+                break
+            except Exception:
+                if attempt == 3:
+                    errors += len(batch_chunks)
+                    logger.exception("Failed to index batch starting at %d after %d attempts", start, attempt)
+                else:
+                    wait = max(args.sleep_between_batches * attempt, args.voyage_base_delay)
+                    logger.warning(
+                        "Batch at %d failed (attempt %d/3), retrying in %.0fs",
+                        start, attempt, wait,
+                    )
+                    time.sleep(wait)
         logger.info("Progress: %d/%d indexed, %d errors", indexed, len(chunks), errors)
         if args.sleep_between_batches > 0 and start + args.batch_size < len(chunks):
             time.sleep(args.sleep_between_batches)
