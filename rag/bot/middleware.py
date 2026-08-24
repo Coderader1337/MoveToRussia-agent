@@ -27,6 +27,14 @@ RATE_REMINDER_TEXT = (
 
 RATE_CALLBACK_PREFIX = "rate:"
 
+# Текст кнопки на постоянной reply-клавиатуре (рядом с полем ввода).
+RESET_BUTTON_TEXT = "reset context"
+
+
+def is_reset_request(text: str | None) -> bool:
+    normalized = (text or "").strip()
+    return normalized in ("/reset", RESET_BUTTON_TEXT)
+
 
 def _event_user_id(event: TelegramObject) -> int | None:
     if isinstance(event, Message) and event.from_user:
@@ -83,6 +91,9 @@ class PendingRatingGateMiddleware(BaseMiddleware):
         if isinstance(event, CallbackQuery) and event.data and event.data.startswith(
             RATE_CALLBACK_PREFIX
         ):
+            return await handler(event, data)
+
+        if isinstance(event, Message) and is_reset_request(event.text):
             return await handler(event, data)
 
         if isinstance(event, Message):

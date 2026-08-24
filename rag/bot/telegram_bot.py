@@ -13,13 +13,15 @@ import sys
 from pathlib import Path
 
 from aiogram import Bot, Dispatcher, F
-from aiogram.filters import Command, CommandStart
+from aiogram.filters import Command, CommandStart, or_f
 from aiogram.fsm.context import FSMContext
 from aiogram.types import (
     CallbackQuery,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
+    KeyboardButton,
     Message,
+    ReplyKeyboardMarkup,
 )
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -31,6 +33,7 @@ from mtr_rag.whitelist import load_allowed_user_ids  # noqa: E402
 
 from bot.middleware import (  # noqa: E402
     RATE_CALLBACK_PREFIX,
+    RESET_BUTTON_TEXT,
     PendingRatingGateMiddleware,
     WhitelistMiddleware,
 )
@@ -64,7 +67,7 @@ WELCOME_TEXT = (
     "   Client email:\n"
     "   \"Hello, I would like to learn how you can help me relocate to Russia...\"\n\n"
     "I remember recent messages in our chat, so follow-up questions work naturally. "
-    "Use /reset to start a new topic."
+    f"Tap {RESET_BUTTON_TEXT} (below the input) or send /reset to start a new topic."
 )
 
 HELP_TEXT = (
@@ -76,7 +79,8 @@ HELP_TEXT = (
     "(e.g. \"and what about the timeline?\") without repeating context.\n\n"
     "/topk N — number of precedents to retrieve (default "
     f"{settings.retrieval_top_k})\n"
-    "/reset — forget the current conversation thread and start a new topic\n"
+    f"{RESET_BUTTON_TEXT} or /reset — forget the current conversation thread and "
+    "start a new topic\n"
     "/help — this message"
 )
 
@@ -120,6 +124,15 @@ def format_sources(sources: list[dict]) -> str:
                 bits.append(str(s["date_start"])[:10])
         lines.append("• " + " ".join(bits))
     return "\n".join(lines)
+
+
+def build_main_keyboard() -> ReplyKeyboardMarkup:
+    """Persistent reply keyboard — always visible next to the text input."""
+    return ReplyKeyboardMarkup(
+        keyboard=[[KeyboardButton(text=RESET_BUTTON_TEXT)]],
+        resize_keyboard=True,
+        is_persistent=True,
+    )
 
 
 def build_rating_keyboard() -> InlineKeyboardMarkup:
@@ -174,16 +187,17 @@ async def send_text_chunks(message: Message, text: str, *, chunk_size: int = 409
 
 
 async def handle_start(message: Message) -> None:
-    await message.answer(WELCOME_TEXT)
+    await message.answer(WELCOME_TEXT, reply_markup=build_main_keyboard())
 
 
 async def handle_help(message: Message) -> None:
-    await message.answer(HELP_TEXT)
+    await message.answer(HELP_TEXT, reply_markup=build_main_keyboard())
 
 
-async def handle_reset(message: Message) -> None:
+async def handle_reset(message: Message, state: FSMContext) -> None:
     reset_history(message.from_user.id)
-    await message.answer(RESET_TEXT)
+    await state.clear()
+    await message.answer(RESET_TEXT, reply_markup=build_main_keyboard())
 
 
 async def handle_topk(message: Message) -> None:
@@ -291,7 +305,10 @@ async def handle_rate(callback: CallbackQuery, state: FSMContext) -> None:
     await callback.answer(f"Rated {rate}/10")
     if callback.message:
         await callback.message.edit_reply_markup(reply_markup=None)
-        await callback.message.answer(RATING_THANKS_TEXT.format(rate=rate))
+        await callback.message.answer(
+            RATING_THANKS_TEXT.format(rate=rate),
+            reply_markup=build_main_keyboard(),
+        )
     logger.info(
         "Usage logged user_id=%s rate=%d path=%s",
         telegram_id,
@@ -310,7 +327,10 @@ def build_dispatcher() -> Dispatcher:
 
     dp.message.register(handle_start, CommandStart())
     dp.message.register(handle_help, Command("help"))
-    dp.message.register(handle_reset, Command("reset"))
+    dp.message.register(
+        handle_reset,
+        or_f(Command("reset"), F.text == RESET_BUTTON_TEXT),
+    )
     dp.message.register(handle_topk, Command("topk"))
     dp.message.register(handle_question, F.text)
     dp.callback_query.register(
