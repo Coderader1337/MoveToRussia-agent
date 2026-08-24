@@ -20,9 +20,12 @@ The manager may send either:
 
 Extract ONLY the questions that need factual answers from the internal knowledge base (prices, fees, timelines, required documents, visa/residency types, policies, procedures, partner contacts, service scope, etc.).
 
+You may also receive CONVERSATION HISTORY — the manager's previous messages in this thread and your previous answers. Use it ONLY to resolve references, pronouns, and ellipsis in the new MANAGER REQUEST (e.g. "and for his wife?", "what about the timeline?", "how much is that one?") into a fully self-contained query. Never treat CONVERSATION HISTORY itself as a factual source — the actual facts must still come from knowledge-base retrieval.
+
 Rules:
 - For (A): extract the manager's factual question as one or more search queries.
 - For (B): include explicit AND implicit factual questions from the client's message.
+- If the new MANAGER REQUEST refers back to a topic, person, or package mentioned earlier in CONVERSATION HISTORY, expand the reference so each query is understandable without the history.
 - Write each question as a standalone English search query (even if the original was in another language).
 - Do NOT include tone/style instructions, greetings, or meta requests like "draft a reply".
 - Do NOT include questions answerable without company-specific facts.
@@ -32,8 +35,29 @@ Rules:
 Output: a JSON array of strings only, no markdown or commentary.
 Example: ["What is the cost of the White Gloves package?", "What documents are required for Shared Values Visa?"]"""
 
-EXTRACT_QUESTIONS_USER = """MANAGER REQUEST:
+EXTRACT_QUESTIONS_USER = """CONVERSATION HISTORY (previous turns in this thread, for resolving references only):
+{history}
+
+MANAGER REQUEST (new message to analyze):
 {question}"""
+
+NO_HISTORY_PLACEHOLDER = "(none — this is the first message in the thread)"
+
+
+def format_history_for_prompt(history: list) -> str:
+    """Отформатировать историю треда для промптов (extraction и generation).
+
+    Принимает список объектов с полями `question` и `answer`
+    (см. bot.user_state.HistoryTurn), без прямой зависимости от aiogram-слоя.
+    """
+    if not history:
+        return NO_HISTORY_PLACEHOLDER
+    blocks = []
+    for i, turn in enumerate(history, start=1):
+        blocks.append(
+            f"[Turn {i}] Manager: {turn.question}\n[Turn {i}] Assistant: {turn.answer}"
+        )
+    return "\n\n".join(blocks)
 
 
 def parse_questions_json(text: str) -> list[str]:
@@ -76,9 +100,14 @@ def extract_rag_questions(
     question: str,
     *,
     llm: ChatOpenAI,
+    history: list | None = None,
     fallback_to_original: bool = True,
 ) -> list[str]:
-    """Return factual search queries for knowledge-base retrieval."""
+    """Return factual search queries for knowledge-base retrieval.
+
+    `history` — предыдущие реплики треда (bot.user_state.HistoryTurn), используются
+    только для разрешения ссылок ("а по времени?"), не как источник фактов.
+    """
     prompt = ChatPromptTemplate.from_messages(
         [
             ("system", EXTRACT_QUESTIONS_SYSTEM),
@@ -86,7 +115,9 @@ def extract_rag_questions(
         ]
     )
     chain = prompt | llm | StrOutputParser()
-    raw = chain.invoke({"question": question})
+    raw = chain.invoke(
+        {"question": question, "history": format_history_for_prompt(history or [])}
+    )
     extracted = parse_questions_json(raw)
 
     if extracted:
