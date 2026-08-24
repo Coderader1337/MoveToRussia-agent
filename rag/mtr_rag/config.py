@@ -87,9 +87,9 @@ class Settings:
 
     # --- Память диалога (контекст треда для follow-up вопросов) ---
     # Сколько последних пар вопрос/ответ хранить на пользователя.
-    history_turns: int = _get_int("MTR_HISTORY_TURNS", 4)
+    history_turns: int = _get_int("MTR_HISTORY_TURNS", 10)
     # Через сколько минут бездействия история треда сбрасывается автоматически.
-    history_ttl_minutes: int = _get_int("MTR_HISTORY_TTL_MIN", 45)
+    history_ttl_minutes: int = _get_int("MTR_HISTORY_TTL_MIN", 60)
 
     # --- Telegram bot access control ---
     telegram_whitelist_path: Path = Path(
