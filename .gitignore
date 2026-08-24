@@ -54,3 +54,4 @@ rag/deploy/github_actions_deploy_key
 rag/deploy/github_actions_deploy_key.pub
 rag/scripts/_*.py
 rag/data/
+rag/telegram_export_RAG/

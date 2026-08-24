@@ -44,6 +44,42 @@ alwaysApply: true
 
 Разработка в `rag_develop`, prod — только через PR.
 
+### SSH на VPS (для агентов)
+
+| Параметр | Значение |
+|---|---|
+| Host | `207.244.254.188` |
+| User | `root` |
+| Hostname | `vmi3380733` |
+| SSH-ключ (Windows) | `C:\Users\alpal\.ssh\id_ed25519` |
+| Публичный ключ | `C:\Users\alpal\.ssh\id_ed25519.pub` |
+| Пароль (fallback) | `VPS_PASS` в корневом `.env` (рядом с `VPS_IP`) |
+
+**Предпочтительно** — вход по ключу (без пароля):
+
+```powershell
+ssh -o BatchMode=yes -i "$env:USERPROFILE\.ssh\id_ed25519" root@207.244.254.188 "hostname && uptime"
+```
+
+Проверка сети: `ping 207.244.254.188`, порт SSH: `Test-NetConnection 207.244.254.188 -Port 22`.
+
+**Если ключ не работает** — пароль из `.env` (`VPS_IP`, `VPS_PASS`). В `BatchMode` пароль через `ssh` недоступен; использовать Python + `paramiko` (установлен):
+
+```python
+# Читать VPS_IP / VPS_PASS из корневого .env, не из rag/.env
+client.connect(ip, username="root", password=password, look_for_keys=False, allow_agent=False)
+```
+
+**Установить ключ на VPS** (если `Permission denied (publickey)`):
+
+```powershell
+type $env:USERPROFILE\.ssh\id_ed25519.pub | ssh root@207.244.254.188 "mkdir -p ~/.ssh && chmod 700 ~/.ssh && cat >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys"
+```
+
+Сгенерировать новый ключ: `ssh-keygen -t ed25519 -C "alpal@movetorussia-vps"`.
+
+Пароли и приватные ключи **не коммитить** и **не писать в правила/код** — только в `.env` или `~/.ssh/`.
+
 ---
 
 ## Данные и артефакты (кратко)

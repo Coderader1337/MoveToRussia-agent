@@ -22,6 +22,7 @@ from .schema import Chunk
 logger = logging.getLogger(__name__)
 
 DISK_SOURCE = "yandex_disk"
+DISK_PRIORITY = "highest"  # authoritative curated files — override FAQ and mailbox precedents
 FILES_SUBDIR = "files"
 CORPUS_FILENAME = "corpus.jsonl"
 MANIFEST_FILENAME = "manifest.json"
@@ -86,6 +87,13 @@ def _slugify_path(relative_path: str) -> str:
 
 def chunk_id_for_file(relative_path: str) -> str:
     return f"ydisk__{_slugify_path(relative_path)}"
+
+
+def display_subject(relative_path: str) -> str:
+    """Human-readable title for retrieval (strip date prefix from filename)."""
+    stem = Path(relative_path).stem
+    stem = re.sub(r"^\d{8}_", "", stem)
+    return stem.replace("_", " ")
 
 
 def sha256_file(path: Path) -> str:
@@ -263,7 +271,7 @@ def _write_corpus_jsonl(local_files: Path, out_path: Path) -> None:
             return
         for path in sorted(local_files.rglob("*.txt")):
             rel = path.relative_to(local_files).as_posix()
-            text = path.read_text(encoding="utf-8").strip()
+            text = path.read_text(encoding="utf-8-sig").strip()
             if not text:
                 continue
             record = {
@@ -271,7 +279,7 @@ def _write_corpus_jsonl(local_files: Path, out_path: Path) -> None:
                 "thread_id": f"yandex_disk:{rel}",
                 "source": DISK_SOURCE,
                 "text": text,
-                "subject": Path(rel).stem,
+                "subject": display_subject(rel),
                 "client_email": None,
                 "manager_emails": [],
                 "date_start": None,
@@ -283,6 +291,7 @@ def _write_corpus_jsonl(local_files: Path, out_path: Path) -> None:
                 "extra": {
                     "file_path": rel,
                     "content_sha256": sha256_text(text),
+                    "priority": DISK_PRIORITY,
                 },
             }
             out.write(json.dumps(record, ensure_ascii=False) + "\n")

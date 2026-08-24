@@ -14,6 +14,7 @@ from __future__ import annotations
 import argparse
 import shutil
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -32,10 +33,25 @@ from mtr_rag.embeddings import FakeDeterministicEmbedder, VoyageEmbedder  # noqa
 from mtr_rag.loaders import load_all_chunks  # noqa: E402
 from mtr_rag.qdrant_store import ensure_collection, get_client, upsert_chunks  # noqa: E402
 
+
+@dataclass
+class _FakeHistoryTurn:
+    """Локальная копия bot.user_state.HistoryTurn — без зависимости от aiogram
+    (chain.ask ожидает только объекты с полями question/answer, dataclass не импортируется
+    напрямую из bot/, чтобы smoke test не тянул зависимости телеграм-бота)."""
+
+    question: str
+    answer: str
+
+
 SAMPLE_QUESTIONS = [
     "Клиент спрашивает про стоимость White Gloves пакета — что мы обычно отвечаем?",
     "Какие документы нужны клиенту для подачи на Shared Values Visa?",
 ]
+
+# Проверка памяти диалога: follow-up без явного упоминания темы первого вопроса —
+# должен быть корректно раскрыт extract_rag_questions через CONVERSATION HISTORY.
+FOLLOWUP_QUESTION = "А сколько по времени это обычно занимает?"
 
 
 def parse_args() -> argparse.Namespace:
@@ -78,9 +94,11 @@ def main() -> int:
     client.close()  # release the on-disk lock so the retriever can open its own client
 
     print("\n=== 3. Retrieval + DeepSeek generation ===")
+    embedder_kwarg = embedder if args.fake_embeddings else None
+    last_question, last_answer = "", ""
     for q in SAMPLE_QUESTIONS:
         print(f"\n--- Question: {q}")
-        result = ask(q, top_k=5, embedder=embedder if args.fake_embeddings else None)
+        result = ask(q, top_k=5, embedder=embedder_kwarg)
         if result.extracted_questions:
             print("Extracted RAG questions:")
             for i, eq in enumerate(result.extracted_questions, start=1):
@@ -89,6 +107,16 @@ def main() -> int:
         print("Sources:")
         for s in result.sources:
             print(f"  - {s}")
+        last_question, last_answer = q, result.answer
+
+    print("\n=== 4. Follow-up с памятью треда (CONVERSATION HISTORY) ===")
+    print(f"--- Follow-up: {FOLLOWUP_QUESTION}")
+    history = [_FakeHistoryTurn(question=last_question, answer=last_answer)]
+    followup = ask(FOLLOWUP_QUESTION, top_k=5, embedder=embedder_kwarg, history=history)
+    print("Extracted RAG questions (should reference the White Gloves topic, not be generic):")
+    for i, eq in enumerate(followup.extracted_questions, start=1):
+        print(f"  {i}. {eq}")
+    print(f"Answer:\n{followup.answer}\n")
 
     print("\nSmoke test finished OK.")
     return 0

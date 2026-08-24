@@ -13,13 +13,15 @@ import sys
 from pathlib import Path
 
 from aiogram import Bot, Dispatcher, F
-from aiogram.filters import Command, CommandStart
+from aiogram.filters import Command, CommandStart, or_f
 from aiogram.fsm.context import FSMContext
 from aiogram.types import (
     CallbackQuery,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
+    KeyboardButton,
     Message,
+    ReplyKeyboardMarkup,
 )
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -31,6 +33,7 @@ from mtr_rag.whitelist import load_allowed_user_ids  # noqa: E402
 
 from bot.middleware import (  # noqa: E402
     RATE_CALLBACK_PREFIX,
+    RESET_BUTTON_TEXT,
     PendingRatingGateMiddleware,
     WhitelistMiddleware,
 )
@@ -40,8 +43,11 @@ from bot.user_state import (  # noqa: E402
     PENDING_QUESTION_KEY,
     PENDING_TIMESTAMP_KEY,
     BotStates,
+    append_history_turn,
     build_fsm_storage,
+    get_history,
     get_top_k,
+    reset_history,
     set_top_k,
     utc_now_iso,
 )
@@ -59,7 +65,9 @@ WELCOME_TEXT = (
     "   Example:\n"
     "   Draft a reply. Clarify that work starts only after the retainer is paid.\n\n"
     "   Client email:\n"
-    "   \"Hello, I would like to learn how you can help me relocate to Russia...\""
+    "   \"Hello, I would like to learn how you can help me relocate to Russia...\"\n\n"
+    "I remember recent messages in our chat, so follow-up questions work naturally. "
+    f"Tap {RESET_BUTTON_TEXT} (below the input) or send /reset to start a new topic."
 )
 
 HELP_TEXT = (
@@ -67,10 +75,16 @@ HELP_TEXT = (
     "Factual question → direct answer from the knowledge base.\n"
     "Client email + draft request → brief analysis, client questions, facts from KB, "
     "and a draft reply + Sources list.\n\n"
+    "I remember the last few messages of our conversation, so you can ask follow-ups "
+    "(e.g. \"and what about the timeline?\") without repeating context.\n\n"
     "/topk N — number of precedents to retrieve (default "
     f"{settings.retrieval_top_k})\n"
+    f"{RESET_BUTTON_TEXT} or /reset — forget the current conversation thread and "
+    "start a new topic\n"
     "/help — this message"
 )
+
+RESET_TEXT = "OK, conversation memory cleared. Starting a new topic."
 
 RATING_PROMPT_TEXT = (
     "How useful was this answer?\n"
@@ -99,13 +113,26 @@ def format_sources(sources: list[dict]) -> str:
         return "No sources found."
     lines = ["\nSources:"]
     for s in sources:
-        bits = [f"thread_id={s.get('thread_id')}"]
-        if s.get("subject"):
-            bits.append(f"«{s['subject']}»")
-        if s.get("date_start"):
-            bits.append(str(s["date_start"])[:10])
+        if s.get("source") == "yandex_disk":
+            label = s.get("file_path") or s.get("subject") or s.get("thread_id")
+            bits = [f"official_file={label}", "priority=highest"]
+        else:
+            bits = [f"thread_id={s.get('thread_id')}"]
+            if s.get("subject"):
+                bits.append(f"«{s['subject']}»")
+            if s.get("date_start"):
+                bits.append(str(s["date_start"])[:10])
         lines.append("• " + " ".join(bits))
     return "\n".join(lines)
+
+
+def build_main_keyboard() -> ReplyKeyboardMarkup:
+    """Persistent reply keyboard — always visible next to the text input."""
+    return ReplyKeyboardMarkup(
+        keyboard=[[KeyboardButton(text=RESET_BUTTON_TEXT)]],
+        resize_keyboard=True,
+        is_persistent=True,
+    )
 
 
 def build_rating_keyboard() -> InlineKeyboardMarkup:
@@ -160,11 +187,17 @@ async def send_text_chunks(message: Message, text: str, *, chunk_size: int = 409
 
 
 async def handle_start(message: Message) -> None:
-    await message.answer(WELCOME_TEXT)
+    await message.answer(WELCOME_TEXT, reply_markup=build_main_keyboard())
 
 
 async def handle_help(message: Message) -> None:
-    await message.answer(HELP_TEXT)
+    await message.answer(HELP_TEXT, reply_markup=build_main_keyboard())
+
+
+async def handle_reset(message: Message, state: FSMContext) -> None:
+    reset_history(message.from_user.id)
+    await state.clear()
+    await message.answer(RESET_TEXT, reply_markup=build_main_keyboard())
 
 
 async def handle_topk(message: Message) -> None:
@@ -182,12 +215,14 @@ async def handle_question(message: Message, state: FSMContext) -> None:
     if not question:
         return
 
-    top_k = get_top_k(message.from_user.id)
+    user_id = message.from_user.id
+    top_k = get_top_k(user_id)
+    history = get_history(user_id)
     await message.bot.send_chat_action(message.chat.id, "typing")
     status_message = await message.answer(PROCESSING_TEXT)
 
     try:
-        result = await asyncio.to_thread(ask, question, top_k=top_k)
+        result = await asyncio.to_thread(ask, question, top_k=top_k, history=history)
     except Exception as exc:  # Voyage/Qdrant/DeepSeek unavailable, etc.
         logger.exception("RAG chain failed for question: %s", question[:200])
         await status_message.edit_text(ERROR_TEXT.format(reason=type(exc).__name__))
@@ -211,6 +246,11 @@ async def handle_question(message: Message, state: FSMContext) -> None:
         logger.exception("Failed to send RAG answer to user_id=%s", message.from_user.id)
         await message.answer(ERROR_TEXT.format(reason="TelegramSendError"))
         return
+
+    # Запоминаем пару вопрос/ответ в истории треда независимо от оценки —
+    # FSM-состояние ниже используется только для гейта "сначала оцени", а
+    # память диалога должна переживать несколько раундов оценки подряд.
+    append_history_turn(user_id, question, answer_text)
 
     await state.set_state(BotStates.awaiting_rating)
     await state.update_data(
@@ -265,7 +305,10 @@ async def handle_rate(callback: CallbackQuery, state: FSMContext) -> None:
     await callback.answer(f"Rated {rate}/10")
     if callback.message:
         await callback.message.edit_reply_markup(reply_markup=None)
-        await callback.message.answer(RATING_THANKS_TEXT.format(rate=rate))
+        await callback.message.answer(
+            RATING_THANKS_TEXT.format(rate=rate),
+            reply_markup=build_main_keyboard(),
+        )
     logger.info(
         "Usage logged user_id=%s rate=%d path=%s",
         telegram_id,
@@ -284,6 +327,10 @@ def build_dispatcher() -> Dispatcher:
 
     dp.message.register(handle_start, CommandStart())
     dp.message.register(handle_help, Command("help"))
+    dp.message.register(
+        handle_reset,
+        or_f(Command("reset"), F.text == RESET_BUTTON_TEXT),
+    )
     dp.message.register(handle_topk, Command("topk"))
     dp.message.register(handle_question, F.text)
     dp.callback_query.register(
