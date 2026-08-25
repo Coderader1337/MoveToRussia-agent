@@ -111,7 +111,6 @@ class Settings:
     communication_principles_path: Path = _resolve_existing_file(
         "MTR_COMMUNICATION_PRINCIPLES_PATH",
         _RAG_DIR / "prompt_data" / "communication_principles.txt",
-        _REPO_ROOT / "prompts" / "communication_principles.txt",
     )
 
 

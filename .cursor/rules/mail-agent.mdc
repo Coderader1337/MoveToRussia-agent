@@ -8,11 +8,20 @@ alwaysApply: true
 
 **Основной продукт** — RAG-ассистент (`rag/`): менеджер в Telegram вставляет письмо клиента → бот ищет прецеденты в переписках и FAQ → черновик ответа на английском + Sources. После ответа — обязательная оценка 1–10.
 
-**Legacy** (только по явному запросу): Mail copilot — черновик письма через n8n / Google Sheets.
+**Legacy** (только по явному запросу, изолирован в `mail_agent/`): Mail copilot — черновик письма через n8n / Google Sheets, Docker API для N8N. Код и артефакты этого продукта живут **только** в `mail_agent/` и не используются RAG-ассистентом.
 
 Метрика: оценка «10 из 10». Тон: живой менеджер, не робот. Принципы: `rag/prompt_data/communication_principles.txt`.
 
 **Правила генерации**: отвечать на все вопросы клиента; не выдумывать факты/ссылки/гарантии; не упоминать ИИ; не уходить в политику.
+
+### Структура репозитория (после разделения legacy/RAG)
+
+| Папка | Назначение |
+|---|---|
+| `rag/` | RAG-ассистент — единственное, что деплоится на VPS (см. CI/CD ниже) |
+| `data_pipeline/` | Скрипты подготовки данных для RAG: IMAP-выгрузка → очистка → корпус → FAQ (см. `data_pipeline/README.md`) |
+| `mailbox_export/`, `mailbox_export_clean/`, `mailbox_export_RAG/`, `knowledge_base/` | Данные (gitignored, только локально), вход/выход `data_pipeline/` |
+| `mail_agent/` | Legacy Mail copilot: `docker_api/`, n8n workflow (`Mail Agent.json`), Google Sheets/CRM скрипты, старые диаграммы. Полностью независим от `rag/` |
 
 ---
 
@@ -84,18 +93,24 @@ type $env:USERPROFILE\.ssh\id_ed25519.pub | ssh root@207.244.254.188 "mkdir -p ~
 
 ## Данные и артефакты (кратко)
 
-**Пайплайн почты → RAG**: IMAP → `mailbox_export/` → `mailbox_export_clean/` → `prepare_rag_corpus.py` → `mailbox_export_RAG/corpus.jsonl` (~5935 chunks) → `index_corpus.py` → Qdrant. Готовые данные **не перегенерировать** без запроса.
+**Пайплайн почты → RAG** (код в `data_pipeline/`, данные в корне репо):
+IMAP → `data_pipeline/export_manager_mailboxes.py` → `mailbox_export/` →
+`data_pipeline/clean_thread_quotes.py` → `mailbox_export_clean/` →
+`data_pipeline/prepare_rag_corpus.py` → `mailbox_export_RAG/corpus.jsonl` (~5935 chunks) →
+`rag/scripts/index_corpus.py` → Qdrant.
+FAQ: `data_pipeline/build_faq_catalog.py` / `build_faq_llm.py` → `knowledge_base/v4/client_faq_review.csv`.
+Полная инструкция: `data_pipeline/README.md`. Готовые данные **не перегенерировать** без запроса.
 
 **База знаний** (`knowledge_base/`): статистика и markdown для агента; актуальная версия `v4/`. Для RAG индексируется `knowledge_base/v4/client_faq_review.csv` (~224 Q→A, `source="faq_catalog"`).
 
-**Mail copilot** (legacy): IMAP-выгрузка → n8n + DeepSeek → Google Sheets. Промпты для тестов — `1.doc` / `2.doc`.
+**Mail copilot** (legacy, `mail_agent/`): IMAP-выгрузка → n8n + DeepSeek → Google Sheets. Скрипты — `mail_agent/scripts/`, workflow — `mail_agent/Mail Agent.json`, Docker API — `mail_agent/docker_api/`. См. `mail_agent/README.md`.
 
 ---
 
 ## Правила для кода
 
-- Весь код RAG — только в `rag/`.
-- Не переписывать `prepare_rag_corpus.py` и `mailbox_export_RAG/` без запроса.
+- Весь код RAG — только в `rag/`. Не смешивать с `mail_agent/` (legacy) и `data_pipeline/` (общие данные для RAG).
+- Не переписывать `data_pipeline/prepare_rag_corpus.py` и `mailbox_export_RAG/` без запроса.
 - Ключи — только в `.env`, не в коде.
 - Shell-скрипты в `deploy/` — LF (Unix).
 - Тест: `smoke_test.py`, затем dev-бот; prod — через PR в `master`.

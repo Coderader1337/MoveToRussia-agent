@@ -1,180 +1,36 @@
-# MovetoRussia Mail Agent
+# MovetoRussia — RAG-ассистент (проект на паузе)
 
-Автоматизация обработки email для менеджеров компании MovetoRussia.com.
+Репозиторий разделён на три независимые части. Основной, активно поддерживаемый
+продукт — **RAG-ассистент** (`rag/`). Остальное — данные и legacy-код, которые ему
+не мешают, но нужны для полного цикла (пересборка корпуса, деплой).
 
-## 📁 Структура проекта
+| Папка | Что это | Деплоится? |
+|---|---|---|
+| [`rag/`](rag/README.md) | RAG-ассистент для Telegram (LangChain, Voyage, DeepSeek, Qdrant, aiogram) — основной продукт | Да, целиком на VPS (см. `rag/deploy/README.md`) |
+| [`data_pipeline/`](data_pipeline/README.md) | Скрипты подготовки данных для RAG: IMAP-выгрузка → очистка → корпус → FAQ-каталог | Нет, запускается локально/вручную |
+| [`mail_agent/`](mail_agent/README.md) | Legacy Mail copilot (n8n + Google Sheets + Docker API) — предшественник RAG, изолирован, не используется RAG | Нет |
+| `mailbox_export/`, `mailbox_export_clean/`, `mailbox_export_RAG/`, `knowledge_base/` | Данные (gitignored, только локально) — вход/выход `data_pipeline/`, источник для `rag/` | — |
 
-### 🐳 `docker_api/` — Docker API для получения переписки
+`rag/` и `mail_agent/` полностью независимы друг от друга: `rag/` не импортирует и не
+читает ничего из `mail_agent/`, `data_pipeline/` — общий поставщик данных только для `rag/`.
 
-**Кастомный REST API endpoint** для интеграции с N8N workflows.
+## Если открываете репозиторий после паузы (см. `.cursor/rules/mail-agent.mdc` для деталей)
 
-- **Статус**: ✅ Запущен и протестирован
-- **Endpoint**: http://localhost:8000
-- **Документация**: `docker_api/START_HERE.md`
+1. **Актуализировать данные** (по желанию — готовый корпус уже лежит в `mailbox_export_RAG/`
+   и `knowledge_base/v4/`, пересборка нужна только если появилась новая переписка):
+   см. `data_pipeline/README.md` — полный цикл IMAP → корпус → FAQ.
+2. **Поднять и проверить RAG локально**: `rag/README.md` — установка зависимостей,
+   `python scripts/index_corpus.py`, `python scripts/smoke_test.py`.
+3. **Задеплоить**: `rag/deploy/README.md` — CI/CD через GitHub Actions
+   (push в `rag_develop` → dev-бот, PR в `master` → prod-бот), либо вручную по SSH.
+4. Legacy-автоматизацию (`mail_agent/`) трогать только по явному запросу — см. `mail_agent/README.md`.
 
-**Быстрый старт:**
-```powershell
-cd docker_api
-docker-compose ps                    # Проверка статуса
-python test_api.py                   # Запуск тестов
-start http://localhost:8000/docs     # Swagger UI
-```
+## Конфигурация
 
-### 📝 Исходные Python скрипты
+- `.env` в корне репозитория — общие секреты, которые читает и `rag/` (как fallback,
+  приоритет у `rag/.env`), и легаси-скрипты (`data_pipeline/`, `mail_agent/`): IMAP-пароли
+  почтовых ящиков менеджеров, `DEEPSEEK_API_KEY`, `VPS_IP`/`VPS_PASS` и т.д.
+- `rag/.env` — специфичные для RAG ключи и настройки (Voyage, Qdrant, Telegram-бот).
+- `mail_agent/.env`, `mail_agent/docker_api/.env` — легаси-конфиги (Google Sheets, Docker API).
 
-- `export_client_context_to_sheets.py` — экспорт в Google Sheets (с CRM)
-- `export_client_thread_to_txt.py` — экспорт переписки в txt файл
-
-### 📋 N8N Workflows
-
-- `n8n_workflow_movetorussia_mail_agent.json` — основной workflow
-- `docker_api/n8n_workflow_api_integration.json` — интеграция с Docker API
-
-### 📖 Документация
-
-- `architecture_diagram.md` — архитектура системы
-- `.cursor/rules/mail-agent.mdc` — системный промпт для разработки
-
----
-
-## 🚀 Docker API — Главная фича
-
-Кастомный API endpoint заменяет прямую работу с IMAP в N8N:
-
-```
-N8N Cloud → HTTP Request → Docker API (localhost:8000) → Yandex Mail IMAP → Переписка в JSON
-```
-
-### Преимущества
-
-✅ Работает с любым почтовым провайдером (Yandex, Gmail, Mail.ru)  
-✅ Не требует IMAP нода в N8N  
-✅ Полный контроль над логикой обработки  
-✅ Безопасность через API Key  
-✅ Автоматические тесты  
-✅ Production-ready (Docker + health checks)
-
-### Endpoints
-
-- `GET /health` — проверка работы
-- `POST /api/v1/emails/thread` — получение переписки
-- `GET /docs` — Swagger UI
-
----
-
-## 📚 Быстрая навигация
-
-| Задача | Файл |
-|--------|------|
-| **Начать работу с API** | `docker_api/START_HERE.md` |
-| Быстрый старт API | `docker_api/QUICKSTART.md` |
-| Документация API | `docker_api/API_README.md` |
-| Архитектура и развертывание | `docker_api/DEPLOYMENT.md` |
-| Настройка N8N | `docker_api/n8n_workflow_api_integration.json` |
-| Тестирование | `docker_api/test_api.py` |
-| Системный промпт | `.cursor/rules/mail-agent.mdc` |
-
----
-
-## 🔧 Быстрые команды
-
-### Docker API
-
-```powershell
-# Управление
-cd docker_api
-docker-compose ps              # Статус
-docker-compose logs -f         # Логи
-docker-compose restart         # Перезапуск
-docker-compose down            # Остановка
-docker-compose up -d --build   # Пересборка
-
-# Тестирование
-python docker_api/test_api.py  # Автотесты
-curl http://localhost:8000/health  # Health check
-```
-
-### Исходные скрипты
-
-```powershell
-# Экспорт в Google Sheets (с CRM)
-python export_client_context_to_sheets.py
-
-# Экспорт в txt файл
-python export_client_thread_to_txt.py cluke92@icloud.com
-```
-
----
-
-## 🎯 Этапы проекта
-
-### ✅ Фаза 1 — Тестирование промптов (завершено)
-- Собраны примеры диалогов
-- Протестированы разные LLM
-- Выбран лучший стиль коммуникации
-
-### ✅ Фаза 2 — Docker API (завершено)
-- FastAPI endpoint для получения переписки
-- Docker контейнеризация
-- API Key аутентификация
-- Автоматические тесты
-- Полная документация
-
-### 📋 Фаза 3 — N8N Cloud Integration (в процессе)
-- Workflow: Yandex Mail → Docker API → DeepSeek → Email ответ
-- Периодичность: 1-2 раза в день
-- Отчет менеджеру: список клиентов + draft писем
-
-### 📋 Фаза 4 — RAG-ассистент (готово к развёртыванию)
-- Qdrant + Voyage proxy (`rag/docker-compose.yml`)
-- Индексация `mailbox_export_clean` → `scripts/rag_index_qdrant.py`
-- Локальный smoke-test → `scripts/rag_console_test.py`
-- Инструкция: `docs/rag_setup.md`
-
-### 🔗 Фаза 5 — Полноценный агент (планируется)
-- CRM интеграция (EnvyCRM)
-- Веб-интерфейс
-
----
-
-## 🔐 Безопасность
-
-- ✅ API Key аутентификация
-- ✅ Пароли приложений Yandex (не основной пароль)
-- ✅ Docker изоляция
-- ✅ IMAP readonly режим
-- ⚠️ `.env` не коммитится в git
-
----
-
-## 📊 Текущий статус
-
-**Docker API**: ✅ Запущен (http://localhost:8000)  
-**Тесты**: ✅ Пройдены (51 письмо получено)  
-**Документация**: ✅ Полная  
-**N8N Integration**: 📋 Готов к настройке  
-
----
-
-## 🏆 Результаты
-
-- 🐳 **Docker API** развернут и протестирован
-- 📝 **7 файлов документации** создано
-- 🧪 **3/3 теста** пройдены успешно
-- 🔗 **N8N workflow** готов к импорту
-- 📧 **51 письмо** успешно получено через API
-
----
-
-## 📞 Начало работы
-
-1. **Ознакомьтесь с Docker API**: `docker_api/START_HERE.md`
-2. **Запустите тесты**: `python docker_api/test_api.py`
-3. **Настройте N8N**: импортируйте `docker_api/n8n_workflow_api_integration.json`
-4. **Проверьте Swagger UI**: http://localhost:8000/docs
-
----
-
-**Версия**: 1.0.0  
-**Дата**: 06.05.2026  
-**Статус**: ✅ Production Ready
+Секреты и приватные ключи — только в `.env` / `~/.ssh/`, никогда в коде или правилах.

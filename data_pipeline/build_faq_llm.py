@@ -44,7 +44,7 @@ for _stream in (sys.stdout, sys.stderr):
         pass
 
 ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT / "scripts"))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from build_faq_catalog import THEME_RULES  # noqa: E402
 from build_kb_versions import filter_messages, read_allowed_clients, write_manifest  # noqa: E402
