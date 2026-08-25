@@ -168,17 +168,29 @@ storage/retrieval и DeepSeek-генерация целиком, но **не** �
 Подробные инструкции (поднять с нуля, пайплайн данных, архитектура, Qdrant,
 CI/CD, поддержка, стоимость, доступы) — в [`docs/`](docs/README.md).
 
-## Что осталось на усмотрение пользователя
+1. Инструкция «поднять проект с нуля»
+rag/docs/SETUP.md
 
-- Тонкая настройка `top_k` (сейчас 6, разумный диапазон 5-8 из задачи).
-- Порог/логика приоритизации `low_signal` chunks при retrieval (сейчас — просто
-  не исключаются и не бустятся).
-- Формулировка системного промпта — сейчас нацелен на "не выдумывать факты" и
-  указание источников; можно уточнять тон под стиль компании.
-- Выбор конкретного FAQ CSV-файла: используется `client_faq_review.csv`
-  (224 отревьюированные группы вопросов). Есть также `client_faq_frequent.csv`
-  (только frequency≥2) и `client_faq_quality_once.csv` — при необходимости
-  переключить через `MTR_FAQ_CSV_PATH`.
-- Реальный прогон `index_corpus.py` и `smoke_test.py` (без `--fake-embeddings`)
-  против рабочего Voyage API и self-hosted Qdrant.
-- Встраивание `index_corpus.py` в n8n cloud как шаг инкрементальной догрузки.
+2. Пайплайн: почта → корпус → Qdrant, источник FAQ
+rag/docs/DATA_PIPELINE.md
+
+3. Архитектура кода
+rag/docs/ARCHITECTURE.md
+
+4. Qdrant: содержимое, пересборка, восстановление
+rag/docs/QDRANT.md
+
+5. CI/CD и деплой
+rag/docs/CICD.md
+
+6. Что требует разработчика и с какой частотой
+rag/docs/MAINTENANCE.md
+
+7. Оценка стоимости поддержки
+rag/docs/COSTS.md
+
+8. Полный список ключей и доступов
+rag/docs/ACCESS_CHECKLIST.md
+
+9. Независимый доступ к Telegram, Voyage, DeepSeek и Yandex Disk
+rag/docs/ACCESS_CHECKLIST.md
