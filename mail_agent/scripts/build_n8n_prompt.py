@@ -28,10 +28,11 @@ for _stream in (sys.stdout, sys.stderr):
     except Exception:
         pass
 
-ROOT = Path(__file__).resolve().parent.parent
-KB_PATH = ROOT / "knowledge_base" / "movetorussia_agent_kb.md"
-PRINCIPLES_PATH = ROOT / "prompts" / "communication_principles.txt"
-OUTPUT_JS = ROOT / "prompts" / "n8n_universal_prompt.js"
+MAIL_AGENT_ROOT = Path(__file__).resolve().parent.parent
+REPO_ROOT = MAIL_AGENT_ROOT.parent  # knowledge_base/ stays at repo root (shared with rag/ pipeline)
+KB_PATH = REPO_ROOT / "knowledge_base" / "movetorussia_agent_kb.md"
+PRINCIPLES_PATH = MAIL_AGENT_ROOT / "prompts" / "communication_principles.txt"
+OUTPUT_JS = MAIL_AGENT_ROOT / "prompts" / "n8n_universal_prompt.js"
 
 SYSTEM_PROMPT = """Ты — менеджер MovetoRussia.com. Пишешь клиенту живым языком опытного человека, а не бота: вежливо, спокойно, по делу. Ты — УНИВЕРСАЛЬНЫЙ менеджер: ведёшь клиента на ЛЮБОЙ стадии воронки и каждый раз пишешь следующее релевантное письмо.
 

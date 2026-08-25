@@ -23,7 +23,7 @@ for _stream in (sys.stdout, sys.stderr):
     except Exception:
         pass
 
-ROOT = Path(__file__).resolve().parent.parent
+ROOT = Path(__file__).resolve().parent.parent.parent  # repo root (mail_agent/ moved one level deeper)
 KB_ROOT = ROOT / "knowledge_base"
 
 SECTION_HEADER = re.compile(r"^## (\d+)\.\s", re.M)
