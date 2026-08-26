@@ -7,11 +7,6 @@
 `DEPLOYMENT.md`, `QUICKSTART.md`, `README_API.md`.
 Этот файл — выжимка + актуальный статус.
 
-> Ранее в git попадали реальные секреты в `SUCCESS.md` / `START_HERE.md` /
-> `.env.generated` (удалены) и в примерах `QUICKSTART.md` / `test_api.py`
-> (очищены). См. [`STATUS.md`](STATUS.md) п.1 — значения нужно отозвать;
-> в истории git они остаются.
-
 ## Технологии
 
 Python 3.12, FastAPI, Uvicorn (2 workers), Pydantic, `imaplib` (стандартная

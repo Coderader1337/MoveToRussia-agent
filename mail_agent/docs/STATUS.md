@@ -17,57 +17,38 @@
 
 ## Что не протестировано / известные ограничения
 
-1. **⚠️ КРИТИЧНО — реальные секреты были закоммичены в git (история коммитов).**
-   Ранее в отслеживаемых файлах лежали настоящие credentials. Из текущего дерева
-   репозитория удалены: `docker_api/SUCCESS.md`, `docker_api/START_HERE.md`,
-   `docker_api/.env.generated`. Очищены от секретов: `docker_api/QUICKSTART.md`,
-   `docker_api/API_README.md`, `docker_api/test_api.py`.
+1. **Docker API доступен наружу только через туннель или постоянный адрес.** В ноде
+   `IMAP Search` workflow `Mail Agent.json` по умолчанию заглушка
+   `YOUR_MAIL_API_HOST` — нужно подставить реальный URL Docker API (ngrok, VPS
+   или локальный IP в одной сети с n8n). Бесплатные ngrok-туннели временные:
+   при перезапуске URL меняется. Для эксплуатации предпочтительнее VPS с
+   постоянным IP/доменом (см. `docker_api/DEPLOYMENT.md`).
 
-   **Скомпрометированные значения** (см. список ниже в этом разделе и в
-   [`ACCESS_CHECKLIST.md`](ACCESS_CHECKLIST.md)) — их нужно считать утёкшими
-   **навсегда**, пока не отозваны/заменены, и они **остаются в истории git**,
-   даже после удаления файлов. **Владельцу нужно самостоятельно**:
-   - отозвать пароль приложения Yandex для ящика менеджера, который использовался
-     в тестах (https://passport.yandex.ru/profile/access) и создать новый
-   - сгенерировать новый `API_KEY` для Docker API (`python generate_api_key.py`);
-   - решить, стоит ли переписывать историю git (`git filter-repo` / BFG) для этого
-     репозитория — это отдельная, потенциально разрушительная операция, которую
-     агент не выполняет автоматически.
-   Подробности и как избежать повтора — в [`ACCESS_CHECKLIST.md`](ACCESS_CHECKLIST.md).
-
-2. **Docker API доступен наружу только через ngrok.** В ноде `IMAP Search` workflow
-   `Mail Agent.json` зашит конкретный ngrok URL
-   (`https://dandy-caravan-tint.ngrok-free.dev`). Бесплатные ngrok-туннели —
-   временные: при перезапуске ngrok URL меняется, и ноду нужно обновлять вручную.
-   Для реальной эксплуатации нужен постоянный адрес (VPS + домен/статический IP),
-   который в проекте не был поднят (см. раздел «Production Deployment» в
-   `docker_api/DEPLOYMENT.md` — остался на уровне рекомендаций, не реализован).
-
-3. **Несовпадение имён переменных окружения почтового ящика.** Корневой `.env`
+2. **Несовпадение имён переменных окружения почтового ящика.** Корневой `.env`
    хранит ключи по конкретному менеджеру (`E_NOVIK_MAIL_ADRESS`, `E_NOVIK_MAIL_KEY`,
    `A_ANTONOVA_MAIL_ADRESS`, `A_ANTONOVA_MAIL_KEY`, `N_PERRY_MAIL_ADRESS`,
    `N_PERRY_MAIL_KEY`), а часть скриптов (`export_client_context_to_sheets.py`,
    `export_client_thread_to_txt.py`) ожидают **обобщённые** `MAIL_ADRESS` / `MAIL_KEY`
-   в `.env` **в папке `mail_agent/`** (которого сейчас нет — см. п.4). Перед запуском
+   в `.env` **в папке `mail_agent/`** (которого сейчас нет — см. п.3). Перед запуском
    этих скриптов нужно вручную создать `mail_agent/.env` с нужным менеджерским
    ящиком под этими обобщёнными именами.
 
-4. **Файла `mail_agent/.env` нет.** Скрипты в `mail_agent/scripts/` и
+3. **Файла `mail_agent/.env` нет.** Скрипты в `mail_agent/scripts/` и
    `mail_agent/` вызывают `load_dotenv()` без пути — значит, ищут `.env` в текущей
    рабочей директории (`mail_agent/`), а не корневой `.env` репозитория. Часть
    переменных (`ENVYCRM_BASE_URL`, `ENVYCRM_KEY`, `GOOGLE_SHEET_ID`,
    `DEEPSEEK_API_KEY`) сейчас определена только в корневом `.env` — их нужно
    продублировать в `mail_agent/.env`, если запускать скрипты из этой папки.
 
-5. **Отсутствует модуль `mail_imap_utils.py`.** `scripts/deepseek_first_contact_to_sheets.py`
+4. **Отсутствует модуль `mail_imap_utils.py`.** `scripts/deepseek_first_contact_to_sheets.py`
    импортирует `from mail_imap_utils import fetch_first_manager_email_to_client`,
    но такого файла в репозитории нет — скрипт **не может быть запущен в текущем
    состоянии** без восстановления/написания этого модуля.
 
-6. **`credentials.json` / `token.json` (Google OAuth) не в git** (правильно, но
+5. **`credentials.json` / `token.json` (Google OAuth) не в git** (правильно, но
    значит: у нового человека их не будет — см. `SETUP.md`, как получить заново).
 
-7. **Мониторинг VPS** (`deploy_vps_monitoring.py`, `vps_collect_stats.sh`,
+6. **Мониторинг VPS** (`deploy_vps_monitoring.py`, `vps_collect_stats.sh`,
    `vps_stats_summary.sh`) — код готов, но нет зафиксированного подтверждения, что
    cron-задача сейчас активна на проде; относится к контейнерам
    `movetorussia_mail_agent_api` и `movetorussia_reply_bot`, которые сами по себе
@@ -75,7 +56,7 @@
    `docker_api`, `twitter_agent`" — там речь о **других**, актуальных контейнерах на
    том же VPS, не о legacy Mail Agent).
 
-8. **`docker_api/n8n_workflow_api_integration.json`** — отдельный,
+7. **`docker_api/n8n_workflow_api_integration.json`** — отдельный,
    **альтернативный** n8n workflow (webhook-триггер вместо Google Sheets Trigin),
    похоже, шаблон/пример, а не то, что реально запускалось в n8n Cloud (использует
    заглушку `YOUR_COMPUTER_IP`). Не путать с основным `Mail Agent.json` в корне

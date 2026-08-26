@@ -12,9 +12,8 @@ Google Sheets).
 переписку менеджера с клиентом по IMAP через свой Docker API → просит DeepSeek
 написать черновик ответа → записывает черновик обратно в таблицу.
 
-Перед тем как начинать — прочитать [`STATUS.md`](STATUS.md): там честно
-зафиксировано, что не протестировано и что нужно сначала подчистить
-(скомпрометированные секреты, отсутствующий модуль, несовпадение имён `.env`).
+Перед тем как начинать — прочитать [`STATUS.md`](STATUS.md): там зафиксировано,
+что не протестировано и какие есть известные ограничения (ngrok, `.env`, отсутствующий модуль).
 
 ## 1. Зависимости
 
@@ -42,7 +41,7 @@ pip install -r requirements.txt
 - DeepSeek API-ключ (https://platform.deepseek.com)
 - Аккаунт n8n Cloud (или self-hosted n8n)
 - Если нужен внешний доступ к Docker API без своего VPS — аккаунт ngrok
-  (временное решение, см. [`STATUS.md`](STATUS.md) п.2)
+  (временное решение, см. [`STATUS.md`](STATUS.md) п.1)
 
 ## 3. Настроить `.env`
 
@@ -72,7 +71,7 @@ CLIENT_EMAIL=some_test_client@example.com   # опционально, дефол
 каждому менеджеру (`E_NOVIK_MAIL_ADRESS`/`_MAIL_KEY`,
 `A_NOVIK_MAIL_ADRESS`/`_MAIL_KEY`, ...) и `CRM_MANAGER_EMPLOYEE_ID`,
 `DEEPSEEK_SHEET_ID` — но сначала нужно восстановить отсутствующий модуль
-`mail_imap_utils.py` (см. [`STATUS.md`](STATUS.md) п.5).
+`mail_imap_utils.py` (см. [`STATUS.md`](STATUS.md) п.4).
 
 ## 4. Google OAuth (`credentials.json` / `token.json`)
 
@@ -90,7 +89,7 @@ CLIENT_EMAIL=some_test_client@example.com   # опционально, дефол
 
 ```powershell
 cd docker_api
-python generate_api_key.py          # сгенерировать новый ключ (не использовать старый — он скомпрометирован, см. STATUS.md)
+python generate_api_key.py          # сгенерировать API_KEY
 cp .env.api.example .env            # вписать API_KEY из шага выше
 docker-compose up -d --build
 curl http://localhost:8000/health
@@ -153,5 +152,3 @@ python scripts\generate_logical_diagram.py
       `Google Sheets Trigger account`, `DeepSeek account`) подключены без
       ошибок
 - [ ] Тестовая строка в Google Sheets получила черновик ответа в течение минуты
-- [ ] Пароль приложения Yandex и API-ключ Docker API — **новые**, не те, что
-      были закоммичены ранее (см. [`STATUS.md`](STATUS.md) п.1)

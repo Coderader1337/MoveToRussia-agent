@@ -152,6 +152,5 @@ python scripts\deploy_vps_monitoring.py --run-now
 
 ## Что НЕ описано отдельно (вспомогательное/тестовое, внутри `docker_api/`)
 
-`docker_api/test_api.py` (автотесты Docker API — содержит захардкоженные
-секреты, см. [`STATUS.md`](STATUS.md) п.1), `docker_api/generate_api_key.py`
-(генератор случайного 64-символьного ключа).
+`docker_api/test_api.py` (автотесты Docker API, секреты из `docker_api/.env`),
+`docker_api/generate_api_key.py` (генератор случайного 64-символьного ключа).
