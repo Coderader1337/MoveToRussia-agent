@@ -17,7 +17,7 @@
 Кастомный REST API endpoint для интеграции с N8N workflows.
 
 - **Endpoint**: http://localhost:8000
-- **Документация**: `docker_api/START_HERE.md`
+- **Документация**: `docker_api/QUICKSTART.md`, [`docs/API.md`](docs/API.md)
 
 ```powershell
 cd docker_api
@@ -64,8 +64,7 @@ python scripts\export_client_thread_to_txt.py client@example.com
 
 Полная документация проекта (статус, Mail API, n8n workflow, скрипты,
 инструкция «поднять с нуля», список доступов) — [`docs/README.md`](docs/README.md).
-Начать с [`docs/STATUS.md`](docs/STATUS.md) — там же находка про секреты,
-попавшие в git (см. раздел «⚠️ Безопасность» ниже).
+Начать с [`docs/STATUS.md`](docs/STATUS.md).
 
 - `architecture_diagram.md/.png/.svg` — архитектурная схема N8N workflow
 - `logical_flow_diagram.md/.png/.svg` — логическая схема
@@ -73,14 +72,6 @@ python scripts\export_client_thread_to_txt.py client@example.com
 ### 🔐 Учётные данные (не в git)
 
 - `credentials.json`, `token.json` — Google OAuth для Sheets-экспорта (перегенерировать через Google Cloud Console при необходимости)
-
-### ⚠️ Безопасность: секреты, ранее попавшие в git
-
-Ранее в `docker_api/SUCCESS.md`, `START_HERE.md`, `.env.generated` и примерах
-в `test_api.py` / `QUICKSTART.md` были закоммичены реальные API-ключ и пароль
-приложения Yandex. Эти файлы удалены или очищены, но **история git** всё ещё
-содержит значения — их нужно отозвать. Подробности —
-[`docs/STATUS.md`](docs/STATUS.md) (п.1) и [`docs/ACCESS_CHECKLIST.md`](docs/ACCESS_CHECKLIST.md).
 
 ---
 
