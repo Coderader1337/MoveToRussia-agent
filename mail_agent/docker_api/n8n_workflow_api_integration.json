@@ -20,7 +20,7 @@
           "string": [
             {
               "name": "manager_email",
-              "value": "={{ $json.body.manager_email || 'e.novik@arkvostok.com' }}"
+              "value": "={{ $json.body.manager_email || 'manager@example.com' }}"
             },
             {
               "name": "manager_password",

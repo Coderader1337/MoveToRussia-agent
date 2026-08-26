@@ -9,7 +9,7 @@
 
 | Компонент | Статус | Комментарий |
 |---|---|---|
-| **Docker API** (`docker_api/`) — FastAPI-сервис получения переписки по IMAP | ✅ Работал | Задокументированный прогон: health check + получение 51 письма реального клиента, ключ API проверен (403 при неверном ключе). См. `docker_api/SUCCESS.md`. |
+| **Docker API** (`docker_api/`) — FastAPI-сервис получения переписки по IMAP | ✅ Работал | Задокументированный прогон: health check + получение 51 письма реального клиента, ключ API проверен (403 при неверном ключе). |
 | **n8n workflow `Mail Agent.json`** — полный сценарий (Sheets Trigger → CRM → почта → DeepSeek → черновик) | ⚠️ Собран и включает реальные ноды с привязанными credentials в n8n (`Google Sheets account`, `DeepSeek account`), но **не подтверждён end-to-end прогон с текущей конфигурацией** — сохранённых логов успешного полного цикла нет | Использует ngrok-туннель к Docker API (см. ниже, известное ограничение) |
 | `export_client_context_to_sheets.py`, `export_client_thread_to_txt.py` | ✅ Рабочие, самодостаточные (CRM + IMAP, только чтение) | Ожидают `MAIL_ADRESS` / `MAIL_KEY` в `.env` — см. ⚠️ ниже про несовпадение имён переменных |
 | `export_crm_client_emails_to_csv.py` | ✅ Рабочий, read-only (`client/list`) | — |
@@ -17,21 +17,18 @@
 
 ## Что не протестировано / известные ограничения
 
-1. **⚠️ КРИТИЧНО — реальные секреты закоммичены в git.**
-   В отслеживаемых файлах репозитория в открытом виде лежат настоящие credentials:
-   - `docker_api/SUCCESS.md`, `docker_api/QUICKSTART.md`, `docker_api/START_HERE.md` —
-     реальный `API_KEY` Docker API и реальный **пароль приложения Yandex** менеджера
-     `e.novik@arkvostok.com`.
-   - `docker_api/test_api.py` — те же значения зашиты прямо в код (константы
-     `API_KEY`, `MANAGER_PASSWORD`).
-   - `docker_api/.env.generated` — ещё один сгенерированный API-ключ в открытом виде.
+1. **⚠️ КРИТИЧНО — реальные секреты были закоммичены в git (история коммитов).**
+   Ранее в отслеживаемых файлах лежали настоящие credentials. Из текущего дерева
+   репозитория удалены: `docker_api/SUCCESS.md`, `docker_api/START_HERE.md`,
+   `docker_api/.env.generated`. Очищены от секретов: `docker_api/QUICKSTART.md`,
+   `docker_api/API_README.md`, `docker_api/test_api.py`.
 
-   Это значит, что оба секрета (API-ключ Docker API и пароль приложения Yandex)
-   **скомпрометированы самим фактом коммита** — даже если сейчас удалить их из
-   рабочей копии, они остаются в истории git. **Владельцу нужно самостоятельно**:
-   - отозвать пароль приложения Yandex для `e.novik@arkvostok.com`
-     (https://passport.yandex.ru/profile/access) и создать новый (если ящик и API
-     будут использоваться снова);
+   **Скомпрометированные значения** (см. список ниже в этом разделе и в
+   [`ACCESS_CHECKLIST.md`](ACCESS_CHECKLIST.md)) — их нужно считать утёкшими
+   **навсегда**, пока не отозваны/заменены, и они **остаются в истории git**,
+   даже после удаления файлов. **Владельцу нужно самостоятельно**:
+   - отозвать пароль приложения Yandex для ящика менеджера, который использовался
+     в тестах (https://passport.yandex.ru/profile/access) и создать новый
    - сгенерировать новый `API_KEY` для Docker API (`python generate_api_key.py`);
    - решить, стоит ли переписывать историю git (`git filter-repo` / BFG) для этого
      репозитория — это отдельная, потенциально разрушительная операция, которую

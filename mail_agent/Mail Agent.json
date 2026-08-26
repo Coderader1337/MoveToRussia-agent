@@ -146,7 +146,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// Таблица соответствий employee_id -> {email менеджера, mail_key менеджера}\n// ЗАПОЛНИ СВОИМИ ДАННЫМИ\nconst MANAGER_EMAIL_MAPPING = {\n  \"1137861\": {\n    email: \"e.novik@arkvostok.com\",\n    mail_key:  $vars.E_NOVIK_MAIL_KEY\n  },\n  \"1129956\": {\n    email: \"n.perry@arkvostok.com\",\n    mail_key:  $vars.N_PERRY_MAIL_KEY\n  }\n  // Добавь других менеджеров:\n  // \"employee_id\": {\n  //   email: \"manager@yandex.ru\",\n  //   mail_key: \"yandex_mail\"\n  // },\n};\n\nconst employeeId = String($input.item.json.employee_id || '');\nconst managerData = MANAGER_EMAIL_MAPPING[employeeId];\nconst managerEmail = managerData?.email || '0';\nconst managerMailKey = managerData?.mail_key || '0';\n\nreturn {\n  ...($input.item.json),\n  manager_email: managerEmail,\n  manager_mail_key: managerMailKey,\n  manager_email_source: managerData ? 'mapping' : 'default'\n};"
+        "jsCode": "// employee_id -> {email, mail_key} (mail_key из n8n Variables, не хардкодить)\nconst MANAGER_EMAIL_MAPPING = {\n  \"1137861\": {\n    email: \"manager1@example.com\",\n    mail_key: $vars.MANAGER1_MAIL_KEY\n  },\n  \"1129956\": {\n    email: \"manager2@example.com\",\n    mail_key: $vars.MANAGER2_MAIL_KEY\n  }\n};\n\nconst employeeId = String($input.item.json.employee_id || '');\nconst managerData = MANAGER_EMAIL_MAPPING[employeeId];\nconst managerEmail = managerData?.email || '0';\nconst managerMailKey = managerData?.mail_key || '0';\n\nreturn {\n  ...($input.item.json),\n  manager_email: managerEmail,\n  manager_mail_key: managerMailKey,\n  manager_email_source: managerData ? 'mapping' : 'default'\n};"
       },
       "name": "Map Manager Email",
       "type": "n8n-nodes-base.code",
@@ -388,7 +388,7 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "=https://dandy-caravan-tint.ngrok-free.dev/api/v1/emails/thread",
+        "url": "=https://YOUR_MAIL_API_HOST/api/v1/emails/thread",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
@@ -399,10 +399,6 @@
             {
               "name": "X-API-Key",
               "value": "={{ $vars.THREAD_API_KEY }}"
-            },
-            {
-              "name": "ngrok-skip-browser-warning",
-              "value": "1"
             }
           ]
         },

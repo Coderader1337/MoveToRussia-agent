@@ -13,7 +13,7 @@
 Примеры:
   python deepseek_rate_emails_in_sheets.py
   python deepseek_rate_emails_in_sheets.py --limit 5
-  python deepseek_rate_emails_in_sheets.py --email cluke92@icloud.com
+  python deepseek_rate_emails_in_sheets.py --email client@example.com
   python deepseek_rate_emails_in_sheets.py --only manager --force
   python deepseek_rate_emails_in_sheets.py --dry-run
 """

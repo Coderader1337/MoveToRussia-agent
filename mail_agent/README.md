@@ -47,7 +47,7 @@ start http://localhost:8000/docs     # Swagger UI
 python scripts\export_client_context_to_sheets.py
 
 # Экспорт в txt файл
-python scripts\export_client_thread_to_txt.py cluke92@icloud.com
+python scripts\export_client_thread_to_txt.py client@example.com
 ```
 
 ### 📋 N8N workflow
@@ -62,14 +62,25 @@ python scripts\export_client_thread_to_txt.py cluke92@icloud.com
 
 ### 📖 `docs/` — документация и диаграммы
 
-- `architecture_diagram.md/.png/.svg`, `architecture_diagram_sketch.md`, `architecture_diagram_simple.md` — схемы N8N workflow
+Полная документация проекта (статус, Mail API, n8n workflow, скрипты,
+инструкция «поднять с нуля», список доступов) — [`docs/README.md`](docs/README.md).
+Начать с [`docs/STATUS.md`](docs/STATUS.md) — там же находка про секреты,
+попавшие в git (см. раздел «⚠️ Безопасность» ниже).
+
+- `architecture_diagram.md/.png/.svg` — архитектурная схема N8N workflow
 - `logical_flow_diagram.md/.png/.svg` — логическая схема
-- `contabo_vps_order_checklist.md` — чек-лист заказа VPS под Docker API
-- `rag_setup_OBSOLETE.md` — **устаревшая** инструкция по раннему прототипу RAG на n8n (до появления `rag/`); оставлена только для истории
 
 ### 🔐 Учётные данные (не в git)
 
 - `credentials.json`, `token.json` — Google OAuth для Sheets-экспорта (перегенерировать через Google Cloud Console при необходимости)
+
+### ⚠️ Безопасность: секреты, ранее попавшие в git
+
+Ранее в `docker_api/SUCCESS.md`, `START_HERE.md`, `.env.generated` и примерах
+в `test_api.py` / `QUICKSTART.md` были закоммичены реальные API-ключ и пароль
+приложения Yandex. Эти файлы удалены или очищены, но **история git** всё ещё
+содержит значения — их нужно отозвать. Подробности —
+[`docs/STATUS.md`](docs/STATUS.md) (п.1) и [`docs/ACCESS_CHECKLIST.md`](docs/ACCESS_CHECKLIST.md).
 
 ---
 

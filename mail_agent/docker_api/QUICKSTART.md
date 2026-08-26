@@ -59,9 +59,9 @@ curl -X POST "http://localhost:8000/api/v1/emails/thread" \
   -H "Content-Type: application/json" \
   -H "X-API-Key: your_secure_api_key_here_change_me" \
   -d '{
-    "manager_email": "e.novik@arkvostok.com",
-    "manager_password": "ukjnnagtatjuurpc",
-    "client_email": "cluke92@icloud.com",
+    "manager_email": "manager@example.com",
+    "manager_password": "yandex_app_password_here",
+    "client_email": "client@example.com",
     "sent_mailbox": "Sent"
   }'
 ```

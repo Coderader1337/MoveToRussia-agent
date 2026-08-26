@@ -45,7 +45,7 @@ OUTPUT_DIR = Path("exported_emails_json")
 SHEET_CRM = "CRM_Context"
 SHEET_EMAILS = "Emails"
 
-DEFAULT_CLIENT_EMAIL = "cluke92@icloud.com"
+DEFAULT_CLIENT_EMAIL = "client@example.com"
 
 # Google Sheets: не более 50 000 символов в одной ячейке (иначе API 400).
 # Берём запас — длинные цепочки эмодзи/суррогатов могут по-разному учитываться на стороне API.
