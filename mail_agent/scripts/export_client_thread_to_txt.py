@@ -36,7 +36,7 @@ from dotenv import load_dotenv
 IMAP_SERVER = "imap.yandex.ru"
 IMAP_PORT = 993
 OUTPUT_DIR = Path("exported_emails_txt")
-DEFAULT_CLIENT_EMAIL = "peterdixon86@outlook.com"
+DEFAULT_CLIENT_EMAIL = "client@example.com"
 
 MAIL_SEPARATOR = "=" * 78
 INNER_RULE = "-" * 78

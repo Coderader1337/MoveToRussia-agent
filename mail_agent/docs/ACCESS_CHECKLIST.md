@@ -12,8 +12,8 @@ Cloud (Credentials / Variables).
 `QUICKSTART.md`, `API_README.md`, `test_api.py` **очищены**. Значения всё равно
 остаются в **истории git** — их нужно отозвать/заменить:
 
-- [ ] Отозвать/сгенерировать новый пароль приложения Yandex для
-      `e.novik@arkvostok.com`: https://passport.yandex.ru/profile/access
+- [ ] Отозвать/сгенерировать новый пароль приложения Yandex для ящика менеджера,
+      использовавшегося в тестах: https://passport.yandex.ru/profile/access
 - [ ] Сгенерировать новый `API_KEY` Docker API: `python docker_api\generate_api_key.py`
 - [ ] Решить, нужно ли переписывать git-историю репозитория, чтобы убрать эти
       значения физически (отдельная операция, вне рамок этой документации)
@@ -22,7 +22,7 @@ Cloud (Credentials / Variables).
 
 | Что | Где получить/управлять |
 |---|---|
-| Ящик менеджера (например `e.novik@arkvostok.com`) | Стандартный логин Yandex |
+| Ящик менеджера (например `manager@example.com`) | Стандартный логин Yandex |
 | **Пароль приложения** (не основной пароль!) | https://passport.yandex.ru/profile/access → "Пароли приложений" |
 
 Используется в: `MAIL_ADRESS`/`MAIL_KEY` (обобщённые скрипты),

@@ -18,7 +18,7 @@ CRM — только чтение. IMAP — readonly (EXAMINE, BODY.PEEK[]).
 
 Примеры:
   python deepseek_first_contact_to_sheets.py
-  python deepseek_first_contact_to_sheets.py --email cluke92@icloud.com
+  python deepseek_first_contact_to_sheets.py --email client@example.com
   python deepseek_first_contact_to_sheets.py --dry-run
 """
 

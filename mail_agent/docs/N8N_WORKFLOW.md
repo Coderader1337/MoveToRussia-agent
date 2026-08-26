@@ -29,7 +29,7 @@ Docker API → сборка промпта → DeepSeek → запись чер�
 | `Extract Deal ID` | `set` | Достаёт `deal_id` из первой найденной сделки |
 | `CRM Deal Get` | `httpRequest` | `POST .../crm/api/v1/deal/get/` — полная карточка сделки по `deal_id` |
 | `Extract Deal Data` | `set` | Достаёт `client_name`, `employee_id`, `client_nationality`, `first_message_from_client`, `stage_name` из карточки (кастомные поля CRM: `crm_1036419`, `crm_1035813`) |
-| `Map Manager Email` | `code` (JS) | Жёстко закодированный словарь `employee_id → {email, mail_key}`: `1137861 → e.novik@arkvostok.com`, `1129956 → n.perry@arkvostok.com`. Пароли берутся из n8n-переменных `$vars.E_NOVIK_MAIL_KEY` / аналогично. Расширяется вручную добавлением новых пар в словарь |
+| `Map Manager Email` | `code` (JS) | Словарь `employee_id → {email, mail_key}` (пример: `manager1@example.com`). Пароли — только из n8n Variables (`MANAGER1_MAIL_KEY` и т.д.), не в коде workflow |
 | `IMAP Search` | `httpRequest` | `POST` на **Docker API** (см. [`API.md`](API.md)) — URL зашит как ngrok-туннель `https://dandy-caravan-tint.ngrok-free.dev/api/v1/emails/thread`, ключ `X-API-Key = {{ $vars.THREAD_API_KEY }}` |
 | `extract last mail` | `code` (JS) | Последнее письмо с непустым текстом; если писем нет — fallback на `first_message_from_client` из CRM |
 | `Format Email History` | `code` (JS) | Собирает всю переписку в хронологический текст с метками `FROM_CLIENT` / `TO_CLIENT` |
@@ -50,8 +50,8 @@ Docker API → сборка промпта → DeepSeek → запись чер�
 
 ### Переменные n8n (`$vars`), которые нужно завести в n8n Cloud
 
-`ENVYCRM_BASE_URL`, `ENVYCRM_KEY`, `THREAD_API_KEY`, `E_NOVIK_MAIL_KEY`,
-`N_PERRY_MAIL_KEY` (и по одной паре `<manager>_MAIL_KEY` на каждого менеджера,
+`ENVYCRM_BASE_URL`, `ENVYCRM_KEY`, `THREAD_API_KEY`, `MANAGER1_MAIL_KEY`,
+`MANAGER2_MAIL_KEY` (и по одной паре `MANAGERn_MAIL_KEY` на каждого менеджера,
 добавленного в словарь `Map Manager Email`). Это переменные **n8n**, отдельные
 от `.env`-файлов остального репозитория — их нужно завести заново в интерфейсе
 n8n Cloud при повторном разворачивании.

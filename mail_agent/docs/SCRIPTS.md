@@ -31,7 +31,7 @@ python scripts\export_client_context_to_sheets.py
 клиента" из CRM (по нескольким возможным ключам полей) как первое сообщение.
 
 ```powershell
-python scripts\export_client_thread_to_txt.py cluke92@icloud.com
+python scripts\export_client_thread_to_txt.py client@example.com
 python scripts\export_client_thread_to_txt.py -o my_thread.txt client@example.com
 ```
 
@@ -71,7 +71,7 @@ python scripts\export_crm_client_emails_to_csv.py -o clients_emails.csv --page-s
 
 ```powershell
 python scripts\deepseek_first_contact_to_sheets.py
-python scripts\deepseek_first_contact_to_sheets.py --email cluke92@icloud.com
+python scripts\deepseek_first_contact_to_sheets.py --email client@example.com
 python scripts\deepseek_first_contact_to_sheets.py --dry-run
 ```
 

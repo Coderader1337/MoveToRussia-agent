@@ -47,7 +47,7 @@ start http://localhost:8000/docs     # Swagger UI
 python scripts\export_client_context_to_sheets.py
 
 # Экспорт в txt файл
-python scripts\export_client_thread_to_txt.py cluke92@icloud.com
+python scripts\export_client_thread_to_txt.py client@example.com
 ```
 
 ### 📋 N8N workflow
