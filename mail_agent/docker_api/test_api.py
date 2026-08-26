@@ -1,24 +1,38 @@
 """
 Тестовый скрипт для проверки работы Mail Agent API.
+
+Секреты — только из docker_api/.env (не в git). Пример переменных:
+  API_KEY=...
+  TEST_MANAGER_EMAIL=manager@example.com
+  TEST_MANAGER_PASSWORD=yandex_app_password
+  TEST_CLIENT_EMAIL=client@example.com
+  API_URL=http://localhost:8000
 """
 
+from __future__ import annotations
+
 import json
+import os
 import sys
 from pathlib import Path
 
 import requests
+from dotenv import load_dotenv
 
-# URL вашего API (измените на ваш IP если запускаете на другом компьютере)
-API_URL = "http://localhost:8000"
-API_KEY = "u_gnztg1VaWQov5DYFw1PpArfZ5xsAL0g3T_7FzUTDN27XjrqzKDf97sGppClc6B"
+load_dotenv(Path(__file__).resolve().parent / ".env")
 
-# Данные для теста (из .env)
-MANAGER_EMAIL = "e.novik@arkvostok.com"
-MANAGER_PASSWORD = "ukjnnagtatjuurpc"
-CLIENT_EMAIL = "cluke92@icloud.com"
+API_URL = os.getenv("API_URL", "http://localhost:8000").rstrip("/")
+API_KEY = os.getenv("API_KEY", "")
+MANAGER_EMAIL = os.getenv("TEST_MANAGER_EMAIL", "")
+MANAGER_PASSWORD = os.getenv("TEST_MANAGER_PASSWORD", "")
+CLIENT_EMAIL = os.getenv("TEST_CLIENT_EMAIL", "")
 
 
-def test_health_check():
+def _imap_credentials_configured() -> bool:
+    return bool(MANAGER_EMAIL and MANAGER_PASSWORD and CLIENT_EMAIL)
+
+
+def test_health_check() -> bool:
     """Проверка работоспособности API."""
     print("[*] Проверка health check...")
     try:
@@ -32,14 +46,22 @@ def test_health_check():
         return False
 
 
-def test_get_email_thread():
+def test_get_email_thread() -> bool:
     """Тест получения переписки."""
+    if not _imap_credentials_configured():
+        print(
+            "\n[!] Пропуск теста переписки: задайте TEST_MANAGER_EMAIL, "
+            "TEST_MANAGER_PASSWORD и TEST_CLIENT_EMAIL в docker_api/.env"
+        )
+        return True
+
     print(f"\n[*] Запрос переписки для клиента: {CLIENT_EMAIL}")
 
     headers = {
         "Content-Type": "application/json",
-        "X-API-Key": API_KEY,
     }
+    if API_KEY:
+        headers["X-API-Key"] = API_KEY
 
     payload = {
         "manager_email": MANAGER_EMAIL,
@@ -74,7 +96,6 @@ def test_get_email_thread():
                 f"   Текст (первые 100 символов): {first['text_plain'][:100]}..."
             )
 
-        # Сохранение результата в файл
         output_file = Path("test_api_response.json")
         with open(output_file, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
@@ -97,9 +118,13 @@ def test_get_email_thread():
         return False
 
 
-def test_api_key_validation():
+def test_api_key_validation() -> bool:
     """Тест проверки API ключа (если включена аутентификация)."""
     print("\n[*] Проверка валидации API ключа...")
+
+    if not API_KEY:
+        print("[!] API_KEY не задан в .env — аутентификация, вероятно, отключена")
+        return True
 
     headers = {
         "Content-Type": "application/json",
@@ -107,9 +132,9 @@ def test_api_key_validation():
     }
 
     payload = {
-        "manager_email": MANAGER_EMAIL,
-        "manager_password": MANAGER_PASSWORD,
-        "client_email": CLIENT_EMAIL,
+        "manager_email": MANAGER_EMAIL or "manager@example.com",
+        "manager_password": MANAGER_PASSWORD or "placeholder",
+        "client_email": CLIENT_EMAIL or "client@example.com",
     }
 
     try:
@@ -123,55 +148,44 @@ def test_api_key_validation():
         if response.status_code == 403:
             print("[+] Аутентификация работает корректно (403 Forbidden)")
             return True
-        elif response.status_code == 200:
+        if response.status_code == 200:
             print(
-                "[!] Предупреждение: API работает без аутентификации (API_KEY не установлен)"
-            )
-            return True
-        else:
-            print(
-                f"[!] Неожиданный статус код: {response.status_code}"
+                "[!] Предупреждение: API принял неверный ключ (проверьте API_KEY в .env)"
             )
             return False
+
+        print(f"[!] Неожиданный статус код: {response.status_code}")
+        return False
 
     except requests.exceptions.RequestException as e:
         print(f"[-] Ошибка запроса: {e}")
         return False
 
 
-def main():
-    """Запуск всех тестов."""
-    # Устанавливаем UTF-8 для Windows консоли
-    import sys
-    import io
+def main() -> int:
     if sys.platform == "win32":
+        import io
+
         sys.stdout = io.TextIOWrapper(
             sys.stdout.buffer, encoding="utf-8", errors="replace"
         )
-    
+
     print("=" * 60)
     print("Тестирование MovetoRussia Mail Agent API")
     print("=" * 60)
 
-    results = []
+    results: list[tuple[str, bool]] = []
 
-    # Test 1: Health check
     results.append(("Health Check", test_health_check()))
 
-    # Test 2: Получение писем
     if results[0][1]:
         results.append(("Get Email Thread", test_get_email_thread()))
+        results.append(("API Key Validation", test_api_key_validation()))
     else:
         print("\n[!] Пропуск остальных тестов (API недоступен)")
         results.append(("Get Email Thread", False))
-
-    # Test 3: Проверка API ключа
-    if results[0][1]:
-        results.append(("API Key Validation", test_api_key_validation()))
-    else:
         results.append(("API Key Validation", False))
 
-    # Итоги
     print("\n" + "=" * 60)
     print("Результаты тестов:")
     print("=" * 60)
@@ -179,14 +193,13 @@ def main():
         status = "[+] PASS" if result else "[-] FAIL"
         print(f"{status} - {test_name}")
 
-    all_passed = all(result for _, result in results)
     print("=" * 60)
-    if all_passed:
+    if all(result for _, result in results):
         print("[+] Все тесты пройдены успешно!")
         return 0
-    else:
-        print("[!] Некоторые тесты не прошли")
-        return 1
+
+    print("[!] Некоторые тесты не прошли")
+    return 1
 
 
 if __name__ == "__main__":

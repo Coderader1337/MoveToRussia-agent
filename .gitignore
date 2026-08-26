@@ -1,6 +1,7 @@
 # Конфиденциальные данные
 .env
 .env.local
+.env.generated
 credentials.json
 token.json
 *.key

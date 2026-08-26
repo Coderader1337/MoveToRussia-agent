@@ -4,13 +4,13 @@
 клиентом по IMAP (Yandex Mail). Используется как HTTP-шаг из n8n workflow.
 Полные оригинальные версии этой документации (немного избыточные и частично
 дублирующие друг друга) остались в самой папке `docker_api/`: `API_README.md`,
-`DEPLOYMENT.md`, `QUICKSTART.md`, `README_API.md`, `START_HERE.md`, `SUCCESS.md`.
+`DEPLOYMENT.md`, `QUICKSTART.md`, `README_API.md`.
 Этот файл — выжимка + актуальный статус.
 
-> ⚠️ В файлах `SUCCESS.md`, `QUICKSTART.md`, `START_HERE.md` и `test_api.py`
-> зашиты **реальные секреты** (API-ключ и пароль приложения Yandex). См.
-> [`STATUS.md`](STATUS.md) п.1 и [`ACCESS_CHECKLIST.md`](ACCESS_CHECKLIST.md) —
-> их нужно считать скомпрометированными и заменить перед повторным использованием.
+> Ранее в git попадали реальные секреты в `SUCCESS.md` / `START_HERE.md` /
+> `.env.generated` (удалены) и в примерах `QUICKSTART.md` / `test_api.py`
+> (очищены). См. [`STATUS.md`](STATUS.md) п.1 — значения нужно отозвать;
+> в истории git они остаются.
 
 ## Технологии
 
