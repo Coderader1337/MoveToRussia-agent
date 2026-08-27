@@ -4,36 +4,6 @@ RAG-ассистент для менеджеров MoveToRussia.com: отвеч�
 по прецедентам из переписки с клиентами и по внутреннему FAQ, чтобы разгрузить
 CEO от повторяющихся консультаций.
 
-## Архитектура
-
-```mermaid
-flowchart LR
-    subgraph Data["Данные (готовы, вне rag/)"]
-        A["mailbox_export_RAG/corpus.jsonl"]
-        B["knowledge_base/v4/client_faq_review.csv"]
-    end
-
-    subgraph Indexing["Индексация (scripts/index_corpus.py)"]
-        C["Loaders\n(mtr_rag/loaders.py)"] --> D["VoyageEmbedder\ninput_type=document"]
-        D --> E[("Qdrant\nmovetorussia_kb")]
-    end
-
-    subgraph Serving["Обслуживание запроса"]
-        F["Telegram бот\n(bot/telegram_bot.py)"] --> G["MtrKnowledgeBaseRetriever\n(Voyage input_type=query)"]
-        G --> E
-        G --> H["Промпт + контекст\n(mtr_rag/chain.py)"]
-        H --> I["DeepSeek deepseek-v4-flash"]
-        I --> F
-    end
-
-    A --> C
-    B --> C
-
-    subgraph Future["n8n cloud (не в этой задаче)"]
-        J["Новые письма → corpus.jsonl"] -.->|"переиспользует index_corpus.py"| Indexing
-    end
-```
-
 Индексация и обслуживание запросов — два независимых модуля, связанных только
 через коллекцию Qdrant. `scripts/index_corpus.py` не импортирует ничего из
 `bot/`, поэтому его легко переиспользовать как шаг n8n-воркфлоу инкрементальной
@@ -43,22 +13,36 @@ flowchart LR
 
 ```
 rag/
-├── mtr_rag/                 # Библиотека (без зависимости на бота)
-│   ├── config.py            # Settings из переменных окружения / .env
-│   ├── schema.py            # Единая модель Chunk (payload Qdrant)
-│   ├── loaders.py           # corpus.jsonl + FAQ CSV → Chunk
-│   ├── embeddings.py        # VoyageEmbedder (LangChain Embeddings, retry/backoff)
-│   ├── qdrant_store.py      # Коллекция, upsert, фильтры, поиск
-│   ├── retriever.py         # Кастомный LangChain BaseRetriever
-│   └── chain.py             # Промпт + DeepSeek (LCEL) → ask(question) -> RagAnswer
+├── mtr_rag/                      # Библиотека (без зависимости на бота)
+│   ├── config.py                 # Settings — все переменные окружения
+│   ├── schema.py                 # Chunk — единая модель (payload Qdrant)
+│   ├── loaders.py                # corpus.jsonl / FAQ CSV / Yandex Disk → Chunk
+│   ├── embeddings.py             # VoyageEmbedder (+ FakeDeterministicEmbedder для тестов)
+│   ├── qdrant_store.py           # Коллекция, upsert, фильтры, поиск
+│   ├── retriever.py              # LangChain BaseRetriever + приоритет yandex_disk
+│   ├── question_extraction.py    # DeepSeek: извлечение вопросов из запроса менеджера
+│   ├── mail_writing_prompt.py    # Системный промпт (Q&A / EMAIL DRAFT)
+│   ├── chain.py                  # ask(question) → RagAnswer — вся цепочка
+│   ├── whitelist.py              # allowed_users.json → множество Telegram ID
+│   └── yandex_disk_sync.py       # Синк .txt с Yandex Disk → corpus.jsonl
 ├── scripts/
-│   ├── index_corpus.py      # CLI индексации (--recreate/--dry-run/--batch-size/--limit)
-│   └── smoke_test.py        # Индексация + retrieval + генерация на 10-20 chunks
+│   ├── index_corpus.py           # Индексация mailbox + FAQ в Qdrant
+│   ├── smoke_test.py             # End-to-end проверка на маленькой выборке
+│   ├── update_yandex_disk_corpus.py  # Синк Yandex Disk → Qdrant (systemd timer на проде)
+│   └── get_yandex_disk_token.py  # One-time OAuth → YANDEX_DISK_TOKEN
 ├── bot/
-│   └── telegram_bot.py      # aiogram-бот
+│   ├── telegram_bot.py           # aiogram-бот: команды, форматирование ответа
+│   ├── middleware.py             # Whitelist + обязательная оценка перед новым вопросом
+│   ├── user_state.py             # FSM, история треда (follow-up), top_k на пользователя
+│   └── stats.py                  # Append-only CSV usage_stats (оценки 1–10)
+├── prompt_data/
+│   └── communication_principles.txt
+├── docs/                         # Подробная документация (см. docs/README.md)
 ├── .env.example
 └── requirements.txt
 ```
+
+Детальное описание каждого модуля — в [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
 ## Формат данных
 
@@ -85,6 +69,13 @@ rag/
 Загружается в тот же `Chunk` со `source="faq_catalog"`, текст собирается как
 `Q: {question}\nA: {answer}`.
 
+**Yandex Disk** (опционально) — `data/yandex_disk/corpus.jsonl`, один `.txt`-файл
+с Disk = один chunk со `source="yandex_disk"`. Считается самым авторитетным
+источником при конфликте фактов. Локальное зеркало: `data/yandex_disk/files/`.
+Синк и индексация — `scripts/update_yandex_disk_corpus.py` (на проде по systemd
+timer, см. [`docs/DATA_PIPELINE.md`](docs/DATA_PIPELINE.md#опциональный-слой-yandex-disk-официальные-файлы)).
+Без этого слоя бот работает на почте + FAQ.
+
 ## Переменные окружения (`rag/.env`, см. `.env.example`)
 
 | Переменная | Назначение |
@@ -102,7 +93,19 @@ rag/
 | `QDRANT_API_KEY` | Если Qdrant защищён ключом |
 | `QDRANT_COLLECTION` | По умолчанию `movetorussia_kb` |
 | `MTR_RETRIEVAL_TOP_K` | top-k по умолчанию для retrieval (по умолчанию `6`) |
-| `MTR_CORPUS_PATH` / `MTR_FAQ_CSV_PATH` | Переопределить пути к данным (по умолчанию берутся относительно корня репозитория) |
+| `MTR_CORPUS_PATH` / `MTR_FAQ_CSV_PATH` | Пути к mailbox-корпусу и FAQ CSV (по умолчанию — относительно корня репозитория) |
+| `YANDEX_DISK_TOKEN` | OAuth-токен Yandex Disk (опционально; получить через `scripts/get_yandex_disk_token.py`) |
+| `YANDEX_OAUTH_CLIENT_ID` / `YANDEX_OAUTH_CLIENT_SECRET` | OAuth-приложение Yandex для получения `YANDEX_DISK_TOKEN` |
+| `YANDEX_DISK_REMOTE_DIR` | Папка на Disk с `.txt`-файлами (по умолчанию `/rag_corpus`) |
+| `MTR_DISK_CORPUS_DIR` | Локальное зеркало Yandex Disk (по умолчанию `data/yandex_disk`) |
+| `MTR_DISK_RESERVE_SLOTS` | Сколько слотов в top-k резервировать под `yandex_disk` (по умолчанию `2`) |
+| `MTR_DISK_MIN_SCORE` | Минимальный cosine score для резервирования disk-слота (по умолчанию `0.30`) |
+| `MTR_HISTORY_TURNS` | Сколько пар вопрос/ответ хранить для follow-up (по умолчанию `10`) |
+| `MTR_HISTORY_TTL_MIN` | Через сколько минут бездействия сбрасывать историю треда (по умолчанию `60`) |
+| `MTR_TELEGRAM_WHITELIST_PATH` | Путь к `allowed_users.json` (по умолчанию `bot/allowed_users.json`) |
+| `MTR_STATS_CSV_PATH` | CSV со статистикой оценок (по умолчанию `data/usage_stats.csv`; на prod/dev — разные пути) |
+| `MTR_COMMUNICATION_PRINCIPLES_PATH` | Файл принципов общения для промпта (по умолчанию `prompt_data/communication_principles.txt`) |
+| `REDIS_URL` | Redis для FSM при нескольких репликах бота (пусто = in-memory) |
 
 ## Запуск
 
@@ -131,18 +134,23 @@ python bot/telegram_bot.py
   оценивает стоимость, ничего не пишет в Qdrant и не делает embed-вызовов.
 - `--no-faq` — индексировать только mailbox-корпус, без FAQ-каталога.
 - `--limit N` — индексировать только первые N chunks (для смоук-тестов).
+- `--sleep-between-batches SEC` — пауза между батчами Voyage (по умолчанию `2.0`, помогает не упереться в RPM).
+- `--voyage-max-retries N` / `--voyage-base-delay SEC` — retry/backoff на 429/5xx от Voyage.
 
 ## Retrieval + генерация
 
 `mtr_rag/chain.ask(question, top_k=..., source=..., exclude_low_signal=..., manager_email=...)`:
 
-1. Эмбеддинг вопроса менеджера через Voyage (`input_type="query"`).
-2. Top-k поиск в Qdrant (по умолчанию top_k=6, настраивается).
-3. Контекст собирается с явным указанием `thread_id` / `subject` / даты у
+1. `question_extraction.py` — DeepSeek извлекает 1–8 фактических вопросов из запроса
+   (или вставленного письма клиента), с учётом истории треда для разрешения ссылок.
+2. Эмбеддинг каждого вопроса через Voyage (`input_type="query"`).
+3. Top-k поиск в Qdrant (по умолчанию top_k=6); retriever резервирует до
+   `MTR_DISK_RESERVE_SLOTS` слотов под `source=yandex_disk` при score ≥ `MTR_DISK_MIN_SCORE`.
+4. Контекст собирается с явным указанием `thread_id` / `subject` / даты у
    каждого найденного фрагмента.
-4. DeepSeek (`deepseek-v4-flash`) отвечает по системному промпту, который явно
-   требует не выдумывать факты и явно сообщать о недостаточности контекста.
-5. Возвращается `RagAnswer(answer, sources)` — ответ и список источников.
+5. DeepSeek (`deepseek-v4-flash`) отвечает по `mail_writing_prompt.py` (Q&A или
+   EMAIL DRAFT), с приоритетом источников: `yandex_disk` > `faq_catalog` > `mailbox_thread`.
+6. Возвращается `RagAnswer(answer, sources, extracted_questions)`.
 
 `low_signal` chunks не исключаются из индекса и не фильтруются по умолчанию —
 только опционально через `exclude_low_signal=True` (использует Qdrant `must_not`
@@ -168,17 +176,29 @@ storage/retrieval и DeepSeek-генерация целиком, но **не** �
 Подробные инструкции (поднять с нуля, пайплайн данных, архитектура, Qdrant,
 CI/CD, поддержка, стоимость, доступы) — в [`docs/`](docs/README.md).
 
-## Что осталось на усмотрение пользователя
+1. Инструкция «поднять проект с нуля»
+rag/docs/SETUP.md
 
-- Тонкая настройка `top_k` (сейчас 6, разумный диапазон 5-8 из задачи).
-- Порог/логика приоритизации `low_signal` chunks при retrieval (сейчас — просто
-  не исключаются и не бустятся).
-- Формулировка системного промпта — сейчас нацелен на "не выдумывать факты" и
-  указание источников; можно уточнять тон под стиль компании.
-- Выбор конкретного FAQ CSV-файла: используется `client_faq_review.csv`
-  (224 отревьюированные группы вопросов). Есть также `client_faq_frequent.csv`
-  (только frequency≥2) и `client_faq_quality_once.csv` — при необходимости
-  переключить через `MTR_FAQ_CSV_PATH`.
-- Реальный прогон `index_corpus.py` и `smoke_test.py` (без `--fake-embeddings`)
-  против рабочего Voyage API и self-hosted Qdrant.
-- Встраивание `index_corpus.py` в n8n cloud как шаг инкрементальной догрузки.
+2. Пайплайн: почта → корпус → Qdrant, источник FAQ
+rag/docs/DATA_PIPELINE.md
+
+3. Архитектура кода
+rag/docs/ARCHITECTURE.md
+
+4. Qdrant: содержимое, пересборка, восстановление
+rag/docs/QDRANT.md
+
+5. CI/CD и деплой
+rag/docs/CICD.md
+
+6. Что требует разработчика и с какой частотой
+rag/docs/MAINTENANCE.md
+
+7. Оценка стоимости поддержки
+rag/docs/COSTS.md
+
+8. Полный список ключей и доступов
+rag/docs/ACCESS_CHECKLIST.md
+
+9. Независимый доступ к Telegram, Voyage, DeepSeek и Yandex Disk
+rag/docs/ACCESS_CHECKLIST.md

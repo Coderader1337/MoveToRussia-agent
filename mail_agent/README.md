@@ -17,7 +17,7 @@
 Кастомный REST API endpoint для интеграции с N8N workflows.
 
 - **Endpoint**: http://localhost:8000
-- **Документация**: `docker_api/QUICKSTART.md`, [`docs/API.md`](docs/API.md)
+- **Документация**: [`docs/API.md`](docs/API.md)
 
 ```powershell
 cd docker_api
@@ -62,9 +62,13 @@ python scripts\export_client_thread_to_txt.py client@example.com
 
 ### 📖 `docs/` — документация и диаграммы
 
-Полная документация проекта (статус, Mail API, n8n workflow, скрипты,
-инструкция «поднять с нуля», список доступов) — [`docs/README.md`](docs/README.md).
-Начать с [`docs/STATUS.md`](docs/STATUS.md).
+1. Статус проекта — [`docs/STATUS.md`](docs/STATUS.md)
+2. Обновить документацию — переписан [`README.md`](README.md)
+3. Mail API — [`docs/API.md`](docs/API.md)
+4. n8n workflow — [`docs/N8N_WORKFLOW.md`](docs/N8N_WORKFLOW.md)
+5. Скрипты — [`docs/SCRIPTS.md`](docs/SCRIPTS.md)
+6. Инструкция «поднять с нуля» — [`docs/SETUP.md`](docs/SETUP.md)
+7. Список доступов — [`docs/ACCESS_CHECKLIST.md`](docs/ACCESS_CHECKLIST.md)
 
 - `architecture_diagram.md/.png/.svg` — архитектурная схема N8N workflow
 - `logical_flow_diagram.md/.png/.svg` — логическая схема

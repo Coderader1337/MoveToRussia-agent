@@ -2,10 +2,8 @@
 
 Кастомный REST-сервис (`docker_api/`), который отдаёт переписку менеджера с
 клиентом по IMAP (Yandex Mail). Используется как HTTP-шаг из n8n workflow.
-Полные оригинальные версии этой документации (немного избыточные и частично
-дублирующие друг друга) остались в самой папке `docker_api/`: `API_README.md`,
-`DEPLOYMENT.md`, `QUICKSTART.md`, `README_API.md`.
-Этот файл — выжимка + актуальный статус.
+Единственный актуальный документ по API; старые `API_README.md`, `DEPLOYMENT.md`,
+`QUICKSTART.md`, `README_API.md` из `docker_api/` удалены (содержимое сведено сюда).
 
 ## Технологии
 
@@ -123,13 +121,85 @@ X-API-Key: <API_KEY>          # обязателен, если задан API_KE
 | `IMAP_SEARCH_RETRY_DELAY_SECONDS` | 1.5 | Пауза между повторами |
 | `IMAP_SOCKET_TIMEOUT` | 60 | Таймаут IMAP-сокета, сек |
 
+## Интеграция с n8n
+
+HTTP Request node:
+
+- **Method:** POST
+- **URL:** `http://<host>:8000/api/v1/emails/thread` (локальный n8n — IP машины с
+  Docker, не `localhost`; n8n Cloud — ngrok или VPS с HTTPS)
+- **Headers:** `Content-Type: application/json`, `X-API-Key: <API_KEY>`
+- **Body:** `manager_email`, `manager_password` (пароль приложения Yandex),
+  `client_email`, `sent_mailbox` (опционально)
+
+Пример workflow: `docker_api/n8n_workflow_api_integration.json`. Подробнее по
+нодам — [`N8N_WORKFLOW.md`](N8N_WORKFLOW.md).
+
+Пароли Yandex — только [пароли приложений](https://passport.yandex.ru/profile/access),
+не основной пароль. Хранить в n8n Credentials.
+
+## Управление контейнером
+
+```bash
+cd mail_agent/docker_api
+docker-compose ps
+docker-compose logs -f mail-agent-api
+docker-compose restart
+docker-compose down
+docker-compose up -d --build    # после изменений кода
+python test_api.py              # smoke-тест
+```
+
+Генерация API-ключа: `python generate_api_key.py`.
+
+## Troubleshooting
+
+| Симптом | Решение |
+|---|---|
+| `401` IMAP auth | Пароль приложения Yandex, не основной; полный email в `manager_email` |
+| Папка `Sent` не найдена | Для русских ящиков: `"sent_mailbox": "Отправленные"` |
+| `403` | Неверный `X-API-Key` |
+| `503` | Yandex IMAP вернул неполный результат после всех повторов — см. логи |
+| Порт 8000 занят | Сменить внешний порт в `docker-compose.yml`: `"8001:8000"` |
+| n8n не достучался | IP хоста (не localhost), firewall Windows, одна сеть с API |
+
+Логи IMAP: stdout контейнера и `LOG_FILE_PATH` (по умолчанию `/app/logs/imap_debug.log`).
+
+## Production (VPS + HTTPS)
+
+Для постоянного доступа из n8n Cloud (вместо ngrok):
+
+1. VPS с Docker Compose, скопировать `docker_api/` и `.env`.
+2. nginx reverse proxy + Let's Encrypt.
+3. Firewall: открыть 443, закрыть прямой доступ к 8000 из интернета.
+
+Пример nginx:
+
+```nginx
+server {
+    listen 443 ssl;
+    server_name your-domain.com;
+
+    ssl_certificate /etc/letsencrypt/live/your-domain.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/your-domain.com/privkey.pem;
+
+    location / {
+        proxy_pass http://127.0.0.1:8000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 120s;
+    }
+}
+```
+
+**ngrok (только для теста):** `ngrok http 8000` → URL в n8n; нестабильно, URL
+меняется при перезапуске — см. [`STATUS.md`](STATUS.md) п.2.
+
 ## Известные ограничения
 
 - Только Yandex Mail (`imap.yandex.ru:993`); для других провайдеров нужно менять
   `IMAP_SERVER`/`IMAP_PORT` в коде.
-- Сервис публикуется на `localhost:8000`; для доступа из n8n Cloud использовался
-  ngrok-туннель (нестабильный, URL меняется при перезапуске) — см.
-  [`STATUS.md`](STATUS.md) п.2.
-- Нет rate limiting и нет постоянного HTTPS/домена "из коробки" — для прод-варианта
-  нужен отдельный VPS + nginx + Let's Encrypt (см. пример конфигурации nginx в
-  `docker_api/DEPLOYMENT.md`), что не было развёрнуто.
+- Сервис по умолчанию на `localhost:8000`; production HTTPS не развёрнут.
+- Нет rate limiting.
