@@ -40,6 +40,7 @@ self-hosted Qdrant (`localhost:6333`, коллекция `movetorussia_kb`) и �
    - `venv/` (виртуальное окружение не деплоится, ставится на VPS)
    - `.env` (секреты никогда не приезжают через git/CI — только руками на VPS)
    - `data/` (usage_stats.csv, кэш Yandex Disk — данные конкретного инстанса)
+   - `bot/allowed_users.json` (whitelist Telegram ID — живёт на VPS, не в git)
    - `__pycache__/`
    - `deploy/github_actions_deploy_key*` (приватный ключ деплоя не должен попасть на VPS через rsync)
 4. По SSH на VPS: `chmod +x` на скрипты в `deploy/`, затем
@@ -55,6 +56,8 @@ self-hosted Qdrant (`localhost:6333`, коллекция `movetorussia_kb`) и �
 - **`venv/`** — создаётся на VPS при каждом деплое из `requirements.txt`.
 - **`data/`** (`usage_stats.csv`, `yandex_disk/` кэш) — состояние конкретного
   инстанса, не должно перезатираться при деплое кода.
+- **`bot/allowed_users.json`** — whitelist Telegram ID, правится на VPS,
+  в git не коммитится.
 - **Qdrant и его данные** — Qdrant не часть `rag/`, живёт отдельным
   Docker-контейнером на VPS, деплой бота его не трогает.
 - **`mail_agent/`, `data_pipeline/`** — вообще не деплоятся, это

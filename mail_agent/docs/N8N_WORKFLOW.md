@@ -9,6 +9,10 @@
 [`logical_flow_diagram.md`](logical_flow_diagram.md) — сгенерированы из этого
 файла скриптами `scripts/generate_*_diagram.py`).
 
+Экспорт **намеренно очищен** от ключей, паролей и значений n8n Variables —
+файл лежит в git. Структура нод актуальна; секреты и `$vars` заводятся
+заново в n8n Cloud (см. ниже).
+
 ### Триггер и общая схема
 
 `Google Sheets Trigger` (проверка новой строки раз в минуту, таблица «Neznajka»)
@@ -30,7 +34,7 @@ Docker API → сборка промпта → DeepSeek → запись чер�
 | `CRM Deal Get` | `httpRequest` | `POST .../crm/api/v1/deal/get/` — полная карточка сделки по `deal_id` |
 | `Extract Deal Data` | `set` | Достаёт `client_name`, `employee_id`, `client_nationality`, `first_message_from_client`, `stage_name` из карточки (кастомные поля CRM: `crm_1036419`, `crm_1035813`) |
 | `Map Manager Email` | `code` (JS) | Словарь `employee_id → {email, mail_key}` (пример: `manager1@example.com`). Пароли — только из n8n Variables (`MANAGER1_MAIL_KEY` и т.д.), не в коде workflow |
-| `IMAP Search` | `httpRequest` | `POST` на **Docker API** (см. [`API.md`](API.md)) — URL зашит как ngrok-туннель `https://dandy-caravan-tint.ngrok-free.dev/api/v1/emails/thread`, ключ `X-API-Key = {{ $vars.THREAD_API_KEY }}` |
+| `IMAP Search` | `httpRequest` | `POST` на **Docker API** (см. [`API.md`](API.md)) — в экспорте заглушка `https://YOUR_MAIL_API_HOST/api/v1/emails/thread` (подставить реальный адрес), ключ `X-API-Key = {{ $vars.THREAD_API_KEY }}` |
 | `extract last mail` | `code` (JS) | Последнее письмо с непустым текстом; если писем нет — fallback на `first_message_from_client` из CRM |
 | `Format Email History` | `code` (JS) | Собирает всю переписку в хронологический текст с метками `FROM_CLIENT` / `TO_CLIENT` |
 | `Assemble Prompt` | `code` (JS) | Собирает финальный промпт: системная инструкция (роль, стиль, 10-этапная воронка, правила "не выдумывать факты") + 3 эталонных примера писем + данные клиента + история переписки |

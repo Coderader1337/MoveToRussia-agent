@@ -101,7 +101,7 @@ IMAP → `data_pipeline/export_manager_mailboxes.py` → `mailbox_export/` →
 FAQ: `data_pipeline/build_faq_catalog.py` / `build_faq_llm.py` → `knowledge_base/v4/client_faq_review.csv`.
 Полная инструкция: `data_pipeline/README.md`. Готовые данные **не перегенерировать** без запроса.
 
-**База знаний** (`knowledge_base/`): статистика и markdown для агента; актуальная версия `v4/`. Для RAG индексируется `knowledge_base/v4/client_faq_review.csv` (~224 Q→A, `source="faq_catalog"`).
+**База знаний** (`knowledge_base/`): статистика и markdown для агента; актуальная версия `v4/`. Для RAG индексируется `knowledge_base/v4/client_faq_review.csv` (290 Q→A, `source="faq_catalog"`).
 
 **Mail copilot** (legacy, `mail_agent/`): IMAP-выгрузка → n8n + DeepSeek → Google Sheets. Скрипты — `mail_agent/scripts/`, workflow — `mail_agent/Mail Agent.json`, Docker API — `mail_agent/docker_api/`. См. `mail_agent/README.md`.
 

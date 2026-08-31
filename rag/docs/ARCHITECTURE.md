@@ -85,7 +85,7 @@ rag/
 - `get_client()` — поддерживает и self-hosted сервер (`QDRANT_URL=http://...`),
   и embedded on-disk режим (`QDRANT_URL=path:./some/dir`, используется в smoke test).
 - `ensure_collection()` — создаёт коллекцию + payload-индексы (`source`,
-  `thread_id`, `client_email`, `manager_emails`, `low_signal`, `date_start`, `language`).
+  `thread_id`, `client_email`, `manager_emails`, `date_start`).
 - `chunk_id_to_point_id()` — детерминированный UUID5 из строкового `id` чанка,
   чтобы повторная индексация того же chunk перезаписывала точку, а не дублировала.
 - `upsert_chunks()`, `build_filter()`, `search()`, `reconcile_source()` (для
@@ -94,7 +94,7 @@ rag/
 ## `mtr_rag/retriever.py`
 
 Кастомный LangChain `BaseRetriever` (не готовый `VectorStore`-wrapper — чтобы
-фильтры по source/manager/дате/`low_signal` напрямую маппились на свою схему
+фильтры по source/manager/дате напрямую маппились на свою схему
 payload без слоя трансляции). Ключевая логика — `merge_disk_priority()`:
 при обычном поиске (без явного `source`) отдельно запрашивается топ по
 `source=yandex_disk` и резервируется до `MTR_DISK_RESERVE_SLOTS` слотов в

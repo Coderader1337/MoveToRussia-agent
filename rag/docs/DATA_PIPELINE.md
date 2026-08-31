@@ -23,7 +23,7 @@ mailbox_export_RAG/corpus.jsonl      — корпус для индексаци�
    │                          │
    │                          │  data_pipeline/build_faq_llm.py (или build_faq_catalog.py)
    │                          ▼
-   │                     knowledge_base/v4/client_faq_review.csv  (~224 вопроса)
+   │                     knowledge_base/v4/client_faq_review.csv  (290 вопросов)
    │                          │
    ▼                          ▼
             rag/scripts/index_corpus.py
@@ -83,11 +83,7 @@ mailbox_export_RAG/corpus.jsonl      — корпус для индексаци�
    менеджера". Это и есть смысловая единица (chunk) для эмбеддинга, а не
    отдельное письмо: одно письмо клиента может быть слишком узким контекстом,
    а целый тред — слишком широким и разнородным.
-4. Помечает малоинформативные exchanges флагом `low_signal` (< 12 слов и без
-   "информативных" маркеров — цифры, визы, цены, даты, документы) — **не
-   удаляет**, просто помечает, чтобы retrieval мог их опционально исключать.
-5. Определяет язык exchange (`langdetect`, опционально).
-6. **Опционально `--distill`**: прогоняет каждый exchange через DeepSeek,
+4. **Опционально `--distill`**: прогоняет каждый exchange через DeepSeek,
    получая компактную "карточку знания" (ситуация клиента + суть ответа).
    Требует `DEEPSEEK_API_KEY`, стоит денег и времени — по умолчанию выключено.
 
@@ -104,16 +100,13 @@ mailbox_export_RAG/corpus.jsonl      — корпус для индексаци�
   | `manager_emails` | list[str] | email(-ы) менеджера(-ов) в exchange |
   | `subject` | str | тема письма |
   | `date_start` / `date_end` | str (ISO) | диапазон дат exchange |
-  | `language` | str \| null | определённый язык |
-  | `low_signal` | bool | малоинформативный exchange |
   | `word_count` | int | число слов |
   | `text` | str | очищенный текст (`КЛИЕНТ (дата): ...` / `МЕНЕДЖЕР (дата): ...`) |
   | `distilled` | str \| null | карточка знания от DeepSeek (если был `--distill`) |
   | `source` | str | всегда `"mailbox_thread"` |
 
 - `prepare_report.txt` — отчёт: сколько тредов/писем/exchanges обработано,
-  сколько `low_signal`, примеры вырезанных цитат/подписей (для проверки
-  эвристик вручную).
+  примеры вырезанных цитат/подписей (для проверки эвристик вручную).
 
 ## Шаг 4 — FAQ-каталог
 
@@ -138,7 +131,7 @@ mailbox_export_RAG/corpus.jsonl      — корпус для индексаци�
 
 Результат — `knowledge_base/v4/`:
 - `client_faq_review.csv` — **основной файл, который индексируется в Qdrant**
-  (~224 вопроса на паузе проекта). Разделитель `;`, кодировка UTF-8 BOM.
+  (290 вопросов на паузе проекта). Разделитель `;`, кодировка UTF-8 BOM.
   Колонки: `number;theme;theme_label;frequency;languages;question;question_original;answer;variants`.
 - `client_faq_frequent.csv` — только вопросы с `frequency >= 2`.
 - `client_faq.csv` — полный список без review-фильтра.
@@ -188,6 +181,10 @@ python scripts\index_corpus.py                 # инкрементальный 
 
 Это опциональный слой: без него бот полностью работоспособен на корпусе почты
 + FAQ, просто без "самого авторитетного" источника фактов.
+
+Файлы лежат на Яндекс.Диске заказчика и синкаются на VPS
+(`rag/data/yandex_disk/`). В архиве/git репозитория их нет и быть не должно
+(`rag/data/` gitignored, в zip не входит).
 
 ## Что можно пересобрать, а что — беречь
 

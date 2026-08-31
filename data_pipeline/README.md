@@ -23,7 +23,7 @@ python data_pipeline\export_manager_mailboxes.py
 # 2. Очистка вложенных цитат → mailbox_export_clean/
 python data_pipeline\clean_thread_quotes.py
 
-# 3. Сборка корпуса для RAG (парсинг, группировка в exchanges, low_signal) → mailbox_export_RAG/corpus.jsonl
+# 3. Сборка корпуса для RAG (парсинг, группировка в exchanges) → mailbox_export_RAG/corpus.jsonl
 python data_pipeline\prepare_rag_corpus.py
 #   Опционально: --distill (нужен DEEPSEEK_API_KEY) — компактные "карточки знания" на каждый exchange
 
