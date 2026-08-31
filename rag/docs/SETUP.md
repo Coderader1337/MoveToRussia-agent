@@ -69,7 +69,7 @@ Yandex Disk / бэкапы) — просто положить их в корен
 разделу 4:
 
 - `mailbox_export_RAG/corpus.jsonl` (~5900 chunks на момент паузы проекта)
-- `knowledge_base/v4/client_faq_review.csv` (~224 вопроса)
+- `knowledge_base/v4/client_faq_review.csv` (290 вопросов)
 
 **Если данных нет и нужно собрать с нуля** — полный цикл описан в
 [`DATA_PIPELINE.md`](DATA_PIPELINE.md), кратко:
@@ -116,8 +116,8 @@ python scripts\index_corpus.py --dry-run     # оценить кол-во ток
 python scripts\index_corpus.py --recreate    # первая полная индексация (создаёт коллекцию с нуля)
 ```
 
-Полная индексация корпуса (~6000 chunks + ~225 FAQ) занимает от нескольких
-минут до ~получаса — ограничение по RPM у Voyage API (см. `VOYAGE_BATCH_SIZE`,
+Полная индексация корпуса (~6000 chunks + 290 FAQ) занимает **около 20 часов**
+— ограничение по RPM у Voyage API (см. `VOYAGE_BATCH_SIZE`,
 `--sleep-between-batches`).
 
 ## 6. Проверка пайплайна (smoke test)
@@ -134,9 +134,10 @@ retrieval → DeepSeek. Если Voyage API недоступен (гео-бло�
 
 ## 7. Whitelist пользователей бота
 
-Отредактировать `rag/bot/allowed_users.json` — список Telegram user ID,
-которым разрешён доступ (см. `mtr_rag/whitelist.py`). Узнать свой Telegram ID
-можно у бота [@userinfobot](https://t.me/userinfobot).
+Скопировать `rag/bot/allowed_users.example.json` → `rag/bot/allowed_users.json`
+и подставить реальные Telegram user ID (см. `mtr_rag/whitelist.py`). Файл
+**не в git**, на VPS правится на месте. Узнать свой Telegram ID можно у бота
+[@userinfobot](https://t.me/userinfobot).
 
 ## 8. Запуск бота локально
 

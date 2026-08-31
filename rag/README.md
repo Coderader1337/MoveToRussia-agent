@@ -57,8 +57,6 @@ rag/
 | `manager_emails` | list[str] | Email(-ы) менеджера(-ов) в треде |
 | `subject` | str | Тема письма |
 | `date_start` / `date_end` | str (ISO 8601) | Диапазон дат exchange |
-| `language` | str \| null | Язык (если определён) |
-| `low_signal` | bool | Малоинформативный обмен (не удаляется, не приоритизируется) |
 | `word_count` | int | Число слов в `text` |
 | `text` | str | Очищенный текст переписки (`МЕНЕДЖЕР (дата): ...`) |
 | `distilled` | str \| null | "Карточка знания" от DeepSeek (если запускали `--distill`) |
@@ -139,7 +137,7 @@ python bot/telegram_bot.py
 
 ## Retrieval + генерация
 
-`mtr_rag/chain.ask(question, top_k=..., source=..., exclude_low_signal=..., manager_email=...)`:
+`mtr_rag/chain.ask(question, top_k=..., source=..., manager_email=...)`:
 
 1. `question_extraction.py` — DeepSeek извлекает 1–8 фактических вопросов из запроса
    (или вставленного письма клиента), с учётом истории треда для разрешения ссылок.
@@ -151,10 +149,6 @@ python bot/telegram_bot.py
 5. DeepSeek (`deepseek-v4-flash`) отвечает по `mail_writing_prompt.py` (Q&A или
    EMAIL DRAFT), с приоритетом источников: `yandex_disk` > `faq_catalog` > `mailbox_thread`.
 6. Возвращается `RagAnswer(answer, sources, extracted_questions)`.
-
-`low_signal` chunks не исключаются из индекса и не фильтруются по умолчанию —
-только опционально через `exclude_low_signal=True` (использует Qdrant `must_not`
-фильтр по полю `low_signal`).
 
 ## Известное ограничение тестовой среды
 

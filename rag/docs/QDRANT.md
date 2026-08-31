@@ -32,7 +32,7 @@ services:
   метрика — `COSINE`.
 - **Payload-индексы** (для быстрой фильтрации): `source` (keyword),
   `thread_id` (keyword), `client_email` (keyword), `manager_emails` (keyword),
-  `low_signal` (bool), `date_start` (datetime), `language` (keyword).
+  `date_start` (datetime).
 - **Point id:** детерминированный `uuid5` от строкового `id` chunk'а
   (`chunk_id_to_point_id()`, фиксированный namespace UUID в коде) — повторная
   индексация того же chunk **перезаписывает** точку, а не создаёт дубликат.
@@ -43,8 +43,8 @@ services:
 
 Полная модель — `Chunk` (`mtr_rag/schema.py`), в Qdrant хранится как
 `to_payload()`: `id`, `thread_id`, `source`, `text`, `subject`,
-`client_email`, `manager_emails`, `date_start`, `date_end`, `language`,
-`low_signal`, `word_count`, `distilled`, плюс специфичные для источника поля
+`client_email`, `manager_emails`, `date_start`, `date_end`,
+`word_count`, `distilled`, плюс специфичные для источника поля
 из `extra` (`theme`/`frequency`/`question`/`answer` для FAQ;
 `file_path`/`content_sha256`/`priority` для Yandex Disk).
 
@@ -53,7 +53,7 @@ services:
 | `source` | Кол-во на момент паузы | Откуда | Приоритет в промпте |
 |---|---|---|---|
 | `mailbox_thread` | ~5935 chunks | `mailbox_export_RAG/corpus.jsonl` | обычный (самый низкий) |
-| `faq_catalog` | ~224 | `knowledge_base/v4/client_faq_review.csv` | средний |
+| `faq_catalog` | 290 | `knowledge_base/v4/client_faq_review.csv` | средний |
 | `yandex_disk` | переменное, зависит от файлов на Disk | `/rag_corpus` на Yandex Disk | `highest` — перекрывает остальные при конфликте |
 
 ## Полная пересборка коллекции с нуля
@@ -68,10 +68,10 @@ python scripts\index_corpus.py --dry-run      # проверить объём/с
 python scripts\index_corpus.py --recreate     # удаляет старую коллекцию и пересоздаёт с нуля
 ```
 
-Полная пересборка (~6000 mailbox chunks + ~225 FAQ) занимает от нескольких
-минут до получаса — упирается в лимит запросов Voyage API (см.
-`VOYAGE_BATCH_SIZE`, флаг `--sleep-between-batches`, по умолчанию 2 сек между
-батчами). Опционально `--no-faq` — только mailbox-корпус, без FAQ.
+Полная пересборка (~6000 mailbox chunks + 290 FAQ) занимает **около 20 часов**
+— упирается в лимит запросов Voyage API (см. `VOYAGE_BATCH_SIZE`, флаг
+`--sleep-between-batches`, по умолчанию 2 сек между батчами). Опционально
+`--no-faq` — только mailbox-корпус, без FAQ.
 
 Слой Yandex Disk индексируется отдельно и не трогается `index_corpus.py` —
 после пересборки основной коллекции нужно отдельно прогнать

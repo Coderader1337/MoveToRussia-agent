@@ -37,6 +37,7 @@ jobs:
             --exclude 'data/' \
             --exclude '__pycache__/' \
             --exclude 'deploy/github_actions_deploy_key*' \
+            --exclude 'bot/allowed_users.json' \
             rag/ "${{ secrets.RAG_VPS_USER }}@${{ secrets.RAG_VPS_HOST }}:/opt/movetorussia/rag-dev/"
 
       - name: Install deps and restart dev bot

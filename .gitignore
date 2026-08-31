@@ -46,6 +46,7 @@ Thumbs.db
 
 # RAG (rag/)
 rag/.env
+rag/bot/allowed_users.json
 rag/_smoke_qdrant_db/
 rag/__pycache__/
 rag/**/__pycache__/
